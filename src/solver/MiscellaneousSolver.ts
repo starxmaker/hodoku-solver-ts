@@ -20,17 +20,276 @@
  */
 
 import type { SolutionStep } from "../Sudoku2";
-import type { SolutionType } from "../SolutionType";
+import { Sudoku2 } from "../Sudoku2";
+import { SolutionType } from "../SolutionType";
+import type { Candidate, Digit } from "../types";
 import { AbstractSolver } from "./AbstractSolver";
 
 // ---------------------------------------------------------------------------
-// MiscellaneousSolver stub — mirrors solver/MiscellaneousSolver.java
-// Handles: Sue de Coq.
+// Bit-mask helpers (candidate masks use bits 1-9)
+// ---------------------------------------------------------------------------
+
+/** Count how many of bits 1–9 are set in a candidate mask. */
+function anzValues(mask: number): number {
+  let n = 0;
+  for (let d = 1; d <= 9; d++) if (mask & (1 << d)) n++;
+  return n;
+}
+
+/** Return a sorted list of digits (1–9) set in a candidate mask. */
+function possibleValues(mask: number): Digit[] {
+  const res: Digit[] = [];
+  for (let d = 1; d <= 9; d++) if (mask & (1 << d)) res.push(d as Digit);
+  return res;
+}
+
+/** Bit mask with bits 1–9 all set (0b1_1111_1110 = 0x1FE). */
+const MAX_CAND_MASK = 0b1111111110;
+
+// ---------------------------------------------------------------------------
+// MiscellaneousSolver — mirrors solver/MiscellaneousSolver.java
+// Implements: Sue de Coq (SDC).
+//
+// Algorithm sketch (Originalkommentar aus Java):
+//   Consider unsolved cells C at the intersection of a row/col R and a box B
+//   (|C| ≥ 2). Let V = candidates in C, nPlus = |V| − |C| ≥ 2.
+//   Find nPlus cells in R\C (set CR, candidates VR) and in B\C (set CB, VB)
+//   such that VR ∩ VB = ∅ and both only draw from V plus possible extras.
+//   Then eliminate (V\VR) from B\(C∪CB) and (V\VB) from R\(C∪CR).
 // ---------------------------------------------------------------------------
 
 export class MiscellaneousSolver extends AbstractSolver {
-  getStep(_type: SolutionType): SolutionStep | null {
-    // TODO: implement
+  override getStep(type: SolutionType): SolutionStep | null {
+    if (type === SolutionType.SUE_DE_COQ) return this._findSueDeCoq();
     return null;
   }
+
+  // ── Top-level search ───────────────────────────────────────────────────────
+
+  private _findSueDeCoq(): SolutionStep | null {
+    // rows × boxes, then cols × boxes (matches Java getSueDeCoqInt call order)
+    return this._sueDeCoqForLines(0, 9) ?? this._sueDeCoqForLines(9, 18);
+  }
+
+  /**
+   * For each line (rows 0–8 or cols 9–17) × each box (18–26): collect the
+   * unsolved intersection cells and check for SDC patterns.
+   */
+  private _sueDeCoqForLines(lineStart: number, lineEnd: number): SolutionStep | null {
+    for (let li = lineStart; li < lineEnd; li++) {
+      const lineUnsolved = (Sudoku2.HOUSES[li] as number[]).filter(
+        i => this.sudoku.values[i] === 0,
+      );
+      for (let bi = 18; bi < 27; bi++) {
+        const boxSet = new Set(
+          (Sudoku2.HOUSES[bi] as number[]).filter(i => this.sudoku.values[i] === 0),
+        );
+        const intersection = lineUnsolved.filter(i => boxSet.has(i));
+        if (intersection.length < 2) continue;
+
+        const step = this._checkIntersection(
+          intersection, lineUnsolved, [...boxSet],
+        );
+        if (step) return step;
+      }
+    }
+    return null;
+  }
+
+  // ── Intersection subset enumeration ───────────────────────────────────────
+
+  /**
+   * Enumerate all 2- and 3-cell subsets of the intersection. Each subset that
+   * has nPlus ≥ 2 (more candidates than cells) is passed to the house search.
+   */
+  private _checkIntersection(
+    intersection: number[],
+    lineUnsolved: number[],
+    boxUnsolved: number[],
+  ): SolutionStep | null {
+    const n = intersection.length;
+    for (let i1 = 0; i1 < n - 1; i1++) {
+      const c1 = this.sudoku.candidates[intersection[i1]];
+      for (let i2 = i1 + 1; i2 < n; i2++) {
+        const cands2 = c1 | this.sudoku.candidates[intersection[i2]];
+        const nPlus = anzValues(cands2) - 2;
+        if (nPlus >= 2) {
+          const step = this._checkHouseSearch(
+            [intersection[i1], intersection[i2]], cands2, nPlus,
+            lineUnsolved, boxUnsolved,
+          );
+          if (step) return step;
+        }
+        // 3-cell subsets
+        for (let i3 = i2 + 1; i3 < n; i3++) {
+          const cands3 = cands2 | this.sudoku.candidates[intersection[i3]];
+          const nPlus3 = anzValues(cands3) - 3;
+          if (nPlus3 >= 2) {
+            const step = this._checkHouseSearch(
+              [intersection[i1], intersection[i2], intersection[i3]], cands3, nPlus3,
+              lineUnsolved, boxUnsolved,
+            );
+            if (step) return step;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  // ── House search (line × box combination enumeration) ─────────────────────
+
+  /**
+   * For a fixed intersection subset: enumerate all subsets of the remaining
+   * line cells, then for each valid line selection enumerate all valid subsets
+   * of the remaining box cells, and test for SDC eliminations.
+   *
+   * Mirrors Java's two-pass checkHouses(nPlus, source, allowedCandSet, onlyOne, secondCheck).
+   */
+  private _checkHouseSearch(
+    intActCells: number[],
+    intActCands: number,
+    nPlus: number,
+    lineUnsolved: number[],
+    boxUnsolved: number[],
+  ): SolutionStep | null {
+    const intActSet = new Set(intActCells);
+    const lineSource = lineUnsolved.filter(i => !intActSet.has(i));
+
+    // Enumerate all non-empty subsets of lineSource (in Java: first secondCheck=false pass)
+    const n = lineSource.length;
+    for (let mask = 1; mask < (1 << n); mask++) {
+      // Build this line subset
+      let lineCands = 0;
+      for (let b = 0; b < n; b++) {
+        if (mask & (1 << b)) lineCands |= this.sudoku.candidates[lineSource[b]];
+      }
+
+      const anzContainedLine = anzValues(lineCands & intActCands);
+      // extra candidates in the line selection that are NOT in the intersection
+      const lineExtraCands = lineCands & ~intActCands;
+      const lineAnzExtra   = anzValues(lineExtraCands);
+      const lineSize       = _popcount(mask);
+      const lineFills      = lineSize - lineAnzExtra; // intersection slots filled
+
+      // Condition (Java): anzContained > 0 && level > anzExtra && level - anzExtra < nPlus
+      if (anzContainedLine === 0 || lineSize <= lineAnzExtra || lineFills >= nPlus) continue;
+
+      // Build lineCells array for this mask
+      const lineCells: number[] = [];
+      for (let b = 0; b < n; b++) if (mask & (1 << b)) lineCells.push(lineSource[b]);
+      const lineSet = new Set(lineCells);
+
+      // blockAllowed: block cells must NOT intersect the core line candidates
+      // (= line candidates that ARE in the intersection, i.e. the non-extra ones)
+      // Java: blockAllowed = ~(lineCands & ~extraCands) = ~(lineCands & intActCands)
+      const lineCoreCands = lineCands & intActCands; // = lineCands minus its extras
+      const blockAllowed  = (~lineCoreCands) & MAX_CAND_MASK;
+      const blockNPlus    = nPlus - lineFills;
+
+      // Enumerate all non-empty subsets of boxSource (second secondCheck=true pass)
+      const boxSource = boxUnsolved.filter(i => !intActSet.has(i) && !lineSet.has(i));
+      const m = boxSource.length;
+      for (let bmask = 1; bmask < (1 << m); bmask++) {
+        // Build block subset candidates
+        let blockCands = 0;
+        for (let b = 0; b < m; b++) {
+          if (bmask & (1 << b)) blockCands |= this.sudoku.candidates[boxSource[b]];
+        }
+
+        // Java: (candidates & ~allowedCandSet) == 0
+        if ((blockCands & ~blockAllowed) !== 0) continue;
+
+        const anzContainedBlock = anzValues(blockCands & intActCands);
+        const blockAnzExtra     = anzValues(blockCands & ~intActCands);
+        const blockSize         = _popcount(bmask);
+        const blockFills        = blockSize - blockAnzExtra;
+
+        // Java: anzContained > 0 && level - anzExtra == nPlus (where nPlus = blockNPlus)
+        if (anzContainedBlock === 0 || blockFills !== blockNPlus) continue;
+
+        // Build blockCells array
+        const blockCells: number[] = [];
+        for (let b = 0; b < m; b++) if (bmask & (1 << b)) blockCells.push(boxSource[b]);
+
+        // Found a candidate SDC — check for actual eliminations
+        const step = this._computeEliminations(
+          intActCells, intActCands,
+          lineCells,  lineCands,
+          blockCells, blockCands,
+          lineUnsolved, boxUnsolved, intActSet,
+        );
+        if (step) return step;
+      }
+    }
+    return null;
+  }
+
+  // ── Elimination computation ────────────────────────────────────────────────
+
+  /**
+   * Given a confirmed SDC pattern, collect all candidates that can be deleted
+   * and return a SolutionStep (or null if nothing can be eliminated).
+   *
+   * From Java checkHouses (secondCheck=true) elimination formulas:
+   *   block eliminations: ((intActCands | blockCands) & ~lineCands)  | sharedExtra
+   *   line  eliminations: ((intActCands | lineCands)  & ~blockCands) | sharedExtra
+   *   where sharedExtra = lineCands & blockCands
+   */
+  private _computeEliminations(
+    intActCells: number[],
+    intActCands: number,
+    lineCells:   number[],
+    lineCands:   number,
+    blockCells:  number[],
+    blockCands:  number,
+    lineUnsolved: number[],
+    boxUnsolved:  number[],
+    intActSet:    Set<number>,
+  ): SolutionStep | null {
+    const lineActSet  = new Set(lineCells);
+    const blockActSet = new Set(blockCells);
+
+    // Shared extra candidates (appear in both line AND block selections)
+    const sharedExtra = lineCands & blockCands;
+
+    // Box cells to eliminate from: boxUnsolved − blockActCells − intActCells
+    const blockTarget   = boxUnsolved.filter(i => !blockActSet.has(i) && !intActSet.has(i));
+    const blockElimCandMask = ((intActCands | blockCands) & ~lineCands) | sharedExtra;
+
+    // Line cells to eliminate from: lineUnsolved − lineActCells − intActCells
+    const lineTarget   = lineUnsolved.filter(i => !lineActSet.has(i) && !intActSet.has(i));
+    const lineElimCandMask = ((intActCands | lineCands) & ~blockCands) | sharedExtra;
+
+    const seen = new Set<number>();
+    const candidatesToDelete: Candidate[] = [];
+
+    for (const cell of blockTarget) {
+      for (const d of possibleValues(this.sudoku.candidates[cell] & blockElimCandMask)) {
+        const key = cell * 10 + d;
+        if (!seen.has(key)) { seen.add(key); candidatesToDelete.push({ index: cell, value: d }); }
+      }
+    }
+    for (const cell of lineTarget) {
+      for (const d of possibleValues(this.sudoku.candidates[cell] & lineElimCandMask)) {
+        const key = cell * 10 + d;
+        if (!seen.has(key)) { seen.add(key); candidatesToDelete.push({ index: cell, value: d }); }
+      }
+    }
+
+    if (candidatesToDelete.length === 0) return null;
+
+    return { type: SolutionType.SUE_DE_COQ, placements: [], candidatesToDelete };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Module-level utility
+// ---------------------------------------------------------------------------
+
+/** Count the number of set bits in a non-negative integer (32-bit safe). */
+function _popcount(n: number): number {
+  n = n - ((n >>> 1) & 0x55555555);
+  n = (n & 0x33333333) + ((n >>> 2) & 0x33333333);
+  return (((n + (n >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
 }

@@ -160,11 +160,11 @@ describe("SudokuSolver — difficulty rating", () => {
     expect(r.score).toBe(496);
   });
 
-  test("uniqueness-1 puzzle: solved=true, difficulty=EXTREME, score=1964", () => {
+  test("uniqueness-1 puzzle: solved=true, difficulty=HARD, score=1514", () => {
     const r = SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE);
     expect(r.solved).toBe(true);
-    expect(r.difficulty).toBe("EXTREME");
-    expect(r.score).toBe(1964);
+    expect(r.difficulty).toBe("HARD");
+    expect(r.score).toBe(1514);
   });
 
   // ── steps are collected ───────────────────────────────────────────────────
@@ -177,17 +177,24 @@ describe("SudokuSolver — difficulty rating", () => {
 
   // ── maxDifficulty cap ─────────────────────────────────────────────────────
 
-  test("uniqueness-1 puzzle capped at HARD: solved=false when score exceeds cap", () => {
+  test("uniqueness-1 puzzle capped at HARD: solved=true since score 1514 ≤ 1600", () => {
     const r = SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE, "HARD");
-    // score > 1600 (HARD ceiling) so solve bails out early
-    expect(r.solved).toBe(false);
-    expect(r.score).toBeGreaterThan(1600);
+    // SDC now solves this puzzle well within the HARD ceiling
+    expect(r.solved).toBe(true);
+    expect(r.score).toBeLessThanOrEqual(1600);
   });
 
   test("easy puzzle capped at EASY: still fully solved within cap", () => {
     const r = SudokuSolver.rate(P.EASY_PUZZLE, "EASY");
     expect(r.solved).toBe(true);
     expect(r.score).toBeLessThanOrEqual(800);
+  });
+
+  // ── Sue de Coq appears in the uniqueness-1 solve path ───────────────────
+
+  test("uniqueness-1 puzzle solve path includes at least one SUE_DE_COQ step", () => {
+    const r = SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE);
+    expect(r.steps.some(s => s.type === SolutionType.SUE_DE_COQ)).toBe(true);
   });
 
   // ── instance method solveWithRating gives same result as static rate ──────
