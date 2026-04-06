@@ -9,26 +9,26 @@ import * as P from "./puzzles";
 // Solution strings — '.' denotes a cell the Java solver could not crack
 // with logical techniques alone.
 const EASY_SOLUTION         = "483921657967345821251876493548132976729564138136798245372689514814253769695417382";
-const UNIQUENESS_1_SOLUTION = "579518243543279618812634975134752896925863754685491322268947531751385469397126587";
+const UNIQUENESS_1_SOLUTION = "173846529268519374549723816796458231381297645425361798937185462652934187814672953";
 const NAKED_PAIR_SOLUTION   = "461572938732894156895316247378629514529481673614753892957248361183967425246135789";
 const X_WING_SOLUTION       = "1..9........4.3.6...78..9.....69...2...7...3...638...............9.6....6....9.1.";
 const XY_WING_SOLUTION      = "...6..5....8........9..3..6....6......6.5..9..4..8.62...47..........68..7....1...";
 const SKYSCRAPER_SOLUTION   = ".97.5.....5...7.6...4..9.75......7..579.6.82...8.7....7..4..1..98.7...4.....9.687";
 const REMOTE_PAIR_SOLUTION  = "...7...8..7..5.........8.3..9....4.3..2.3.9....3....6..8.3.........1..5..6...4...";
-const ALS_XZ_SOLUTION       = "987523116356487912828916457615798334739145268144768519593674821471252683262351749";
+const ALS_XZ_SOLUTION       = "987654321246173985351928746128537694634892157795461832519286473472319568863745219";
 
 // Step elimination snapshots
 const UR1_ELIM_COUNT          = 2;
-const UR1_ELIM_0_INDEX        = 12;
-const UR1_ELIM_0_VALUE        = 2;
+const UR1_ELIM_0_INDEX        = 66;
+const UR1_ELIM_0_VALUE        = 1;
 
 const NAKED_PAIR_ELIM_COUNT   = 2;
 const NAKED_PAIR_ELIM_0_INDEX = 31;
 const NAKED_PAIR_ELIM_0_VALUE = 8;
 
-const ALS_XZ_ELIM_COUNT       = 3;
-const ALS_XZ_ELIM_0_INDEX     = 26;
-const ALS_XZ_ELIM_0_VALUE     = 6;
+const ALS_XZ_ELIM_COUNT       = 4;
+const ALS_XZ_ELIM_0_INDEX     = 39;
+const ALS_XZ_ELIM_0_VALUE     = 3;
 
 const FINNED_X_WING_ELIM_COUNT   = 1;
 const FINNED_X_WING_ELIM_0_INDEX = 11;
@@ -95,6 +95,7 @@ describe("SudokuSolver — solution snapshots", () => {
 describe("SudokuSolver — step elimination snapshots", () => {
   test("UR1 elimination matches snapshot", () => {
     const solver = makeSolver(P.UNIQUENESS_1_PUZZLE);
+    advanceSimples(solver);
     const step = solver.getStep(SolutionType.UNIQUENESS_1);
     expect(step).not.toBeNull();
     expect(step!.candidatesToDelete).toHaveLength(UR1_ELIM_COUNT);
@@ -128,5 +129,79 @@ describe("SudokuSolver — step elimination snapshots", () => {
     expect(step!.candidatesToDelete).toHaveLength(FINNED_X_WING_ELIM_COUNT);
     expect(step!.candidatesToDelete[0].index).toBe(FINNED_X_WING_ELIM_0_INDEX);
     expect(step!.candidatesToDelete[0].value).toBe(FINNED_X_WING_ELIM_0_VALUE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Difficulty rating tests  (solveWithRating / SudokuSolver.rate)
+// ---------------------------------------------------------------------------
+
+describe("SudokuSolver — difficulty rating", () => {
+  // ── fully-solved puzzles ──────────────────────────────────────────────────
+
+  test("easy puzzle: solved=true, difficulty=EASY, score=196", () => {
+    const r = SudokuSolver.rate(P.EASY_PUZZLE);
+    expect(r.solved).toBe(true);
+    expect(r.difficulty).toBe("EASY");
+    expect(r.score).toBe(196);
+  });
+
+  test("naked-pair puzzle: solved=true, difficulty=EASY, score=298", () => {
+    const r = SudokuSolver.rate(P.NAKED_PAIR_PUZZLE);
+    expect(r.solved).toBe(true);
+    expect(r.difficulty).toBe("EASY");
+    expect(r.score).toBe(298);
+  });
+
+  test("als-xz puzzle: solved=true, difficulty=EASY, score=496", () => {
+    const r = SudokuSolver.rate(P.ALS_XZ_PUZZLE);
+    expect(r.solved).toBe(true);
+    expect(r.difficulty).toBe("EASY");
+    expect(r.score).toBe(496);
+  });
+
+  test("uniqueness-1 puzzle: solved=true, difficulty=EXTREME, score=1964", () => {
+    const r = SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE);
+    expect(r.solved).toBe(true);
+    expect(r.difficulty).toBe("EXTREME");
+    expect(r.score).toBe(1964);
+  });
+
+  // ── steps are collected ───────────────────────────────────────────────────
+
+  test("easy puzzle: steps list is non-empty and matches step count", () => {
+    const r = SudokuSolver.rate(P.EASY_PUZZLE);
+    expect(r.steps.length).toBe(49);
+    expect(r.steps[0].type).toBeDefined();
+  });
+
+  // ── maxDifficulty cap ─────────────────────────────────────────────────────
+
+  test("uniqueness-1 puzzle capped at HARD: solved=false when score exceeds cap", () => {
+    const r = SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE, "HARD");
+    // score > 1600 (HARD ceiling) so solve bails out early
+    expect(r.solved).toBe(false);
+    expect(r.score).toBeGreaterThan(1600);
+  });
+
+  test("easy puzzle capped at EASY: still fully solved within cap", () => {
+    const r = SudokuSolver.rate(P.EASY_PUZZLE, "EASY");
+    expect(r.solved).toBe(true);
+    expect(r.score).toBeLessThanOrEqual(800);
+  });
+
+  // ── instance method solveWithRating gives same result as static rate ──────
+
+  test("solveWithRating matches SudokuSolver.rate for naked-pair puzzle", () => {
+    const { Sudoku2: Sudoku2Class } = require("../src/index");
+    const sudoku = new Sudoku2Class();
+    sudoku.setSudoku(P.NAKED_PAIR_PUZZLE);
+    const solver = makeSolver(P.NAKED_PAIR_PUZZLE);
+    const r = solver.solveWithRating();
+    const rStatic = SudokuSolver.rate(P.NAKED_PAIR_PUZZLE);
+    expect(r.solved).toBe(rStatic.solved);
+    expect(r.score).toBe(rStatic.score);
+    expect(r.difficulty).toBe(rStatic.difficulty);
+    expect(r.steps.length).toBe(rStatic.steps.length);
   });
 });

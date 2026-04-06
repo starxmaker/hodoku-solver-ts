@@ -19,55 +19,46 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Sudoku2 } from "../Sudoku2";
-import type { SolutionStep } from "../Sudoku2";
-import { SolutionType } from "../SolutionType";
-import { SimpleSolver } from "./SimpleSolver";
-import { FishSolver } from "./FishSolver";
-import { SingleDigitPatternSolver } from "./SingleDigitPatternSolver";
-import { WingSolver } from "./WingSolver";
-import { ColoringSolver } from "./ColoringSolver";
-import { ChainSolver } from "./ChainSolver";
-import { UniquenessSolver } from "./UniquenessSolver";
-import { AlsSolver } from "./AlsSolver";
-import { MiscellaneousSolver } from "./MiscellaneousSolver";
-import { TablingSolver } from "./TablingSolver";
+import type { SolutionStep } from '../Sudoku2';
+import { Sudoku2 } from '../Sudoku2';
+import { SolutionType } from '../SolutionType';
+import type { DifficultyType, SolveRating } from '../types';
+import { AbstractSolver } from './AbstractSolver';
+import { SimpleSolver } from './SimpleSolver';
+import { FishSolver } from './FishSolver';
+import { SingleDigitPatternSolver } from './SingleDigitPatternSolver';
+import { WingSolver } from './WingSolver';
+import { ColoringSolver } from './ColoringSolver';
+import { ChainSolver } from './ChainSolver';
+import { UniquenessSolver } from './UniquenessSolver';
+import { AlsSolver } from './AlsSolver';
+import { MiscellaneousSolver } from './MiscellaneousSolver';
+import { TablingSolver } from './TablingSolver';
 
-// ---------------------------------------------------------------------------
-// Technique order — mirrors the Java StepConfig ordinal order
-// ---------------------------------------------------------------------------
-const TECHNIQUE_ORDER: SolutionType[] = [
+// Technique order from Java Options.DEFAULT_SOLVER_STEPS (sorted by step number)
+const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
   SolutionType.FULL_HOUSE,
-  SolutionType.HIDDEN_SINGLE,
   SolutionType.NAKED_SINGLE,
+  SolutionType.HIDDEN_SINGLE,
   SolutionType.LOCKED_CANDIDATES_1,
   SolutionType.LOCKED_CANDIDATES_2,
   SolutionType.NAKED_PAIR,
-  SolutionType.HIDDEN_PAIR,
   SolutionType.NAKED_TRIPLE,
+  SolutionType.HIDDEN_PAIR,
   SolutionType.HIDDEN_TRIPLE,
   SolutionType.NAKED_QUADRUPLE,
   SolutionType.HIDDEN_QUADRUPLE,
   SolutionType.X_WING,
   SolutionType.SWORDFISH,
   SolutionType.JELLYFISH,
-  SolutionType.SQUIRMBAG,
-  SolutionType.FINNED_X_WING,
-  SolutionType.FINNED_SWORDFISH,
-  SolutionType.FINNED_JELLYFISH,
-  SolutionType.FINNED_SQUIRMBAG,
+  SolutionType.REMOTE_PAIR,
   SolutionType.SKYSCRAPER,
   SolutionType.TWO_STRING_KITE,
-  SolutionType.EMPTY_RECTANGLE,
   SolutionType.TURBOT_FISH,
+  SolutionType.EMPTY_RECTANGLE,
+  SolutionType.W_WING,
   SolutionType.XY_WING,
   SolutionType.XYZ_WING,
-  SolutionType.W_WING,
-  SolutionType.SIMPLE_COLORS,
-  SolutionType.MULTI_COLORS,
-  SolutionType.REMOTE_PAIR,
-  SolutionType.X_CHAIN,
-  SolutionType.XY_CHAIN,
   SolutionType.UNIQUENESS_1,
   SolutionType.UNIQUENESS_2,
   SolutionType.UNIQUENESS_3,
@@ -78,114 +69,232 @@ const TECHNIQUE_ORDER: SolutionType[] = [
   SolutionType.AVOIDABLE_RECTANGLE_1,
   SolutionType.AVOIDABLE_RECTANGLE_2,
   SolutionType.BUG_PLUS_1,
+  SolutionType.FINNED_X_WING,
+  SolutionType.FINNED_SWORDFISH,
+  SolutionType.FINNED_JELLYFISH,
+  SolutionType.FINNED_SQUIRMBAG,
+  SolutionType.SUE_DE_COQ,
+  SolutionType.SIMPLE_COLORS,
+  SolutionType.MULTI_COLORS,
+  SolutionType.X_CHAIN,
+  SolutionType.XY_CHAIN,
+  SolutionType.NICE_LOOP,
   SolutionType.ALS_XZ,
   SolutionType.ALS_XY_WING,
   SolutionType.ALS_CHAIN,
   SolutionType.DEATH_BLOSSOM,
-  SolutionType.SUE_DE_COQ,
-  SolutionType.NICE_LOOP,
   SolutionType.FORCING_CHAIN,
   SolutionType.FORCING_NET,
-  SolutionType.GIVE_UP,
 ];
 
 // ---------------------------------------------------------------------------
-// SudokuSolver — mirrors solver/SudokuSolver.java
+// Difficulty rating — base scores from Java Options.DEFAULT_SOLVER_STEPS
+// and max-score thresholds from Java Options.difficultyLevels.
 // ---------------------------------------------------------------------------
 
-/**
- * Orchestrates all technique-specific solvers, trying them in difficulty order
- * until the puzzle is solved or no more progress can be made.
- */
-export class SudokuSolver {
-  private sudoku!: Sudoku2;
+/** Score added to the running total each time a technique is applied. */
+const STEP_BASE_SCORES: Partial<Record<string, number>> = {
+  [SolutionType.FULL_HOUSE]:              4,
+  [SolutionType.NAKED_SINGLE]:            4,
+  [SolutionType.HIDDEN_SINGLE]:           14,
+  [SolutionType.LOCKED_CANDIDATES_1]:     50,
+  [SolutionType.LOCKED_CANDIDATES_2]:     50,
+  [SolutionType.NAKED_PAIR]:              60,
+  [SolutionType.NAKED_TRIPLE]:            80,
+  [SolutionType.HIDDEN_PAIR]:             70,
+  [SolutionType.HIDDEN_TRIPLE]:           100,
+  [SolutionType.NAKED_QUADRUPLE]:         120,
+  [SolutionType.HIDDEN_QUADRUPLE]:        150,
+  [SolutionType.X_WING]:                  140,
+  [SolutionType.SWORDFISH]:               150,
+  [SolutionType.JELLYFISH]:               160,
+  [SolutionType.SQUIRMBAG]:               470,
+  [SolutionType.REMOTE_PAIR]:             110,
+  [SolutionType.BUG_PLUS_1]:              100,
+  [SolutionType.SKYSCRAPER]:              130,
+  [SolutionType.TWO_STRING_KITE]:         150,
+  [SolutionType.TURBOT_FISH]:             120,
+  [SolutionType.EMPTY_RECTANGLE]:         120,
+  [SolutionType.W_WING]:                  150,
+  [SolutionType.XY_WING]:                 160,
+  [SolutionType.XYZ_WING]:                180,
+  [SolutionType.UNIQUENESS_1]:            100,
+  [SolutionType.UNIQUENESS_2]:            100,
+  [SolutionType.UNIQUENESS_3]:            100,
+  [SolutionType.UNIQUENESS_4]:            100,
+  [SolutionType.UNIQUENESS_5]:            100,
+  [SolutionType.UNIQUENESS_6]:            100,
+  [SolutionType.HIDDEN_RECTANGLE]:        100,
+  [SolutionType.AVOIDABLE_RECTANGLE_1]:   100,
+  [SolutionType.AVOIDABLE_RECTANGLE_2]:   100,
+  [SolutionType.FINNED_X_WING]:           130,
+  [SolutionType.FINNED_SWORDFISH]:        200,
+  [SolutionType.FINNED_JELLYFISH]:        250,
+  [SolutionType.FINNED_SQUIRMBAG]:        470,
+  [SolutionType.SUE_DE_COQ]:              250,
+  [SolutionType.SIMPLE_COLORS]:           150,
+  [SolutionType.MULTI_COLORS]:            200,
+  [SolutionType.X_CHAIN]:                 260,
+  [SolutionType.XY_CHAIN]:                260,
+  [SolutionType.NICE_LOOP]:               280,
+  [SolutionType.ALS_XZ]:                  300,
+  [SolutionType.ALS_XY_WING]:             320,
+  [SolutionType.ALS_CHAIN]:               340,
+  [SolutionType.DEATH_BLOSSOM]:           360,
+  [SolutionType.FORCING_CHAIN]:           500,
+  [SolutionType.FORCING_NET]:             700,
+};
 
-  private readonly simple = new SimpleSolver();
-  private readonly fish = new FishSolver();
-  private readonly singleDigit = new SingleDigitPatternSolver();
-  private readonly wing = new WingSolver();
-  private readonly coloring = new ColoringSolver();
-  private readonly chain = new ChainSolver();
-  private readonly uniqueness = new UniquenessSolver();
-  private readonly als = new AlsSolver();
-  private readonly misc = new MiscellaneousSolver();
-  private readonly tabling = new TablingSolver();
+/** Ordered difficulty levels with their cumulative score ceilings. */
+const DIFFICULTY_LEVELS: { name: DifficultyType; maxScore: number }[] = [
+  { name: "EASY",    maxScore: 800 },
+  { name: "MEDIUM",  maxScore: 1000 },
+  { name: "HARD",    maxScore: 1600 },
+  { name: "UNFAIR",  maxScore: 1800 },
+  { name: "EXTREME", maxScore: Number.MAX_SAFE_INTEGER },
+];
 
-  /** Steps applied during the last {@link solve} call. */
-  steps: SolutionStep[] = [];
+// ---------------------------------------------------------------------------
+// SudokuSolver — orchestrator delegating to specialised sub-solvers.
+// ---------------------------------------------------------------------------
 
-  setSudoku(sudoku: Sudoku2): void {
-    this.sudoku = sudoku;
-    this.steps = [];
-    this._propagateSudoku();
+export class SudokuSolver extends AbstractSolver {
+  private readonly _simple: SimpleSolver;
+  private readonly _fish: FishSolver;
+  private readonly _sdp: SingleDigitPatternSolver;
+  private readonly _wing: WingSolver;
+  private readonly _coloring: ColoringSolver;
+  private readonly _chain: ChainSolver;
+  private readonly _uniqueness: UniquenessSolver;
+  private readonly _als: AlsSolver;
+  private readonly _misc: MiscellaneousSolver;
+  private readonly _tabling: TablingSolver;
+  private readonly _allSolvers: AbstractSolver[];
+
+  constructor() {
+    super();
+    this._simple     = new SimpleSolver();
+    this._fish       = new FishSolver();
+    this._sdp        = new SingleDigitPatternSolver();
+    this._wing       = new WingSolver();
+    this._coloring   = new ColoringSolver();
+    this._chain      = new ChainSolver();
+    this._uniqueness = new UniquenessSolver();
+    this._als        = new AlsSolver();
+    this._misc       = new MiscellaneousSolver();
+    this._tabling    = new TablingSolver();
+    this._allSolvers = [
+      this._simple, this._fish, this._sdp, this._wing,
+      this._coloring, this._chain, this._uniqueness, this._als,
+      this._misc, this._tabling,
+    ];
   }
 
-  getSudoku(): Sudoku2 {
-    return this.sudoku;
+  override setSudoku(sudoku: Sudoku2): void {
+    super.setSudoku(sudoku);
+    for (const s of this._allSolvers) s.setSudoku(sudoku);
+  }
+
+  /** Solve the puzzle using techniques in difficulty order. */
+  solve(): void {
+    for (let i = 0; i < 10_000 && !this.sudoku.isSolved; i++) {
+      let stepped = false;
+      for (const type of TECHNIQUE_ORDER) {
+        const step = this._solverFor(type)?.getStep(type);
+        if (step) {
+          this.doStep(step);
+          stepped = true;
+          break;
+        }
+      }
+      if (!stepped) break;
+    }
   }
 
   /**
-   * Try to find the next logical step.
-   * Returns the step, or `null` if no technique applies.
+   * Solve the puzzle and compute a HoDoKu difficulty rating.
+   *
+   * Mirrors Java's {@code SudokuSolver.solve(DifficultyLevel, Sudoku2, rejectTooLowScore, ...)}:
+   * accumulates a score from each applied step's base score, then determines
+   * the difficulty band by walking up the threshold table.
+   *
+   * @param maxDifficulty  When provided the solve stops as soon as the
+   *                       accumulated score exceeds that band's ceiling,
+   *                       returning {@code solved: false}.  Omit (or pass
+   *                       {@code "EXTREME"}) to always solve to completion.
    */
-  getStep(type: SolutionType): SolutionStep | null {
+  solveWithRating(maxDifficulty: DifficultyType = "EXTREME"): SolveRating {
+    const maxThreshold = DIFFICULTY_LEVELS.find(d => d.name === maxDifficulty)!.maxScore;
+    const steps: SolutionStep[] = [];
+    let score = 0;
+
+    outer: for (let i = 0; i < 10_000 && !this.sudoku.isSolved; i++) {
+      for (const type of TECHNIQUE_ORDER) {
+        const step = this._solverFor(type)?.getStep(type);
+        if (step) {
+          score += STEP_BASE_SCORES[step.type] ?? 0;
+          this.doStep(step);
+          steps.push(step);
+          if (score > maxThreshold) break outer;
+          continue outer;
+        }
+      }
+      break; // no step found
+    }
+
+    // Walk up the difficulty ladder (mirrors Java's post-loop level promotion)
+    let levelIdx = 0;
+    while (levelIdx < DIFFICULTY_LEVELS.length - 1 && score > DIFFICULTY_LEVELS[levelIdx].maxScore) {
+      levelIdx++;
+    }
+    const difficulty = DIFFICULTY_LEVELS[levelIdx].name;
+
+    return { solved: this.sudoku.isSolved, score, difficulty, steps };
+  }
+
+  override getStep(type: typeof SolutionType[keyof typeof SolutionType]): SolutionStep | null {
     return this._solverFor(type)?.getStep(type) ?? null;
   }
 
   /**
-   * Apply a step to the current grid.
+   * Convenience: load an 81-character puzzle string, solve it, and return
+   * the difficulty rating — all in one call, without managing a {@link Sudoku2}
+   * instance yourself.
+   *
+   * ```ts
+   * const { solved, score, difficulty } = SudokuSolver.rate("530070000...");
+   * ```
+   *
+   * @param puzzle        81-character string; '0' or '.' for empty cells.
+   * @param maxDifficulty Optional cap — same as {@link solveWithRating}.
    */
-  doStep(step: SolutionStep): void {
-    this._solverFor(step.type)?.doStep(step);
-    this.steps.push(step);
+  static rate(puzzle: string, maxDifficulty: DifficultyType = "EXTREME"): SolveRating {
+    const sudoku = new Sudoku2();
+    sudoku.setSudoku(puzzle);
+    const solver = new SudokuSolver();
+    solver.setSudoku(sudoku);
+    return solver.solveWithRating(maxDifficulty);
   }
 
-  /**
-   * Solve the puzzle to completion (or until no further progress is possible).
-   * Mirrors the Java {@code SudokuSolver.solve()} method.
-   */
-  solve(): void {
-    while (!this.sudoku.isSolved) {
-      const step = this._findNextStep();
-      if (step === null) break;
-      this.doStep(step);
-    }
+  /** Return the current grid. */
+  getSudoku(): Sudoku2 {
+    return this.sudoku;
   }
 
-  // ── Private ─────────────────────────────────────────────────────────────
-
-  private _findNextStep(): SolutionStep | null {
-    for (const type of TECHNIQUE_ORDER) {
-      const step = this.getStep(type);
-      if (step !== null) return step;
-    }
-    return null;
-  }
-
-  private _propagateSudoku(): void {
-    const solvers = [
-      this.simple, this.fish, this.singleDigit, this.wing,
-      this.coloring, this.chain, this.uniqueness,
-      this.als, this.misc, this.tabling,
-    ];
-    for (const s of solvers) s.setSudoku(this.sudoku);
-  }
-
-  /** Map a SolutionType to the solver responsible for it. */
-  private _solverFor(type: SolutionType) {
+  private _solverFor(type: typeof SolutionType[keyof typeof SolutionType]): AbstractSolver | null {
     switch (type) {
       case SolutionType.FULL_HOUSE:
-      case SolutionType.HIDDEN_SINGLE:
       case SolutionType.NAKED_SINGLE:
+      case SolutionType.HIDDEN_SINGLE:
       case SolutionType.LOCKED_CANDIDATES_1:
       case SolutionType.LOCKED_CANDIDATES_2:
       case SolutionType.NAKED_PAIR:
-      case SolutionType.HIDDEN_PAIR:
       case SolutionType.NAKED_TRIPLE:
-      case SolutionType.HIDDEN_TRIPLE:
       case SolutionType.NAKED_QUADRUPLE:
+      case SolutionType.HIDDEN_PAIR:
+      case SolutionType.HIDDEN_TRIPLE:
       case SolutionType.HIDDEN_QUADRUPLE:
-        return this.simple;
+        return this._simple;
 
       case SolutionType.X_WING:
       case SolutionType.SWORDFISH:
@@ -195,27 +304,27 @@ export class SudokuSolver {
       case SolutionType.FINNED_SWORDFISH:
       case SolutionType.FINNED_JELLYFISH:
       case SolutionType.FINNED_SQUIRMBAG:
-        return this.fish;
+        return this._fish;
 
       case SolutionType.SKYSCRAPER:
       case SolutionType.TWO_STRING_KITE:
-      case SolutionType.EMPTY_RECTANGLE:
       case SolutionType.TURBOT_FISH:
-        return this.singleDigit;
+      case SolutionType.EMPTY_RECTANGLE:
+        return this._sdp;
 
       case SolutionType.XY_WING:
       case SolutionType.XYZ_WING:
       case SolutionType.W_WING:
-        return this.wing;
+        return this._wing;
 
       case SolutionType.SIMPLE_COLORS:
       case SolutionType.MULTI_COLORS:
-        return this.coloring;
-
       case SolutionType.REMOTE_PAIR:
+        return this._coloring;
+
       case SolutionType.X_CHAIN:
       case SolutionType.XY_CHAIN:
-        return this.chain;
+        return this._chain;
 
       case SolutionType.UNIQUENESS_1:
       case SolutionType.UNIQUENESS_2:
@@ -227,21 +336,21 @@ export class SudokuSolver {
       case SolutionType.AVOIDABLE_RECTANGLE_1:
       case SolutionType.AVOIDABLE_RECTANGLE_2:
       case SolutionType.BUG_PLUS_1:
-        return this.uniqueness;
+        return this._uniqueness;
 
       case SolutionType.ALS_XZ:
       case SolutionType.ALS_XY_WING:
       case SolutionType.ALS_CHAIN:
       case SolutionType.DEATH_BLOSSOM:
-        return this.als;
+        return this._als;
 
       case SolutionType.SUE_DE_COQ:
-        return this.misc;
+        return this._misc;
 
       case SolutionType.NICE_LOOP:
       case SolutionType.FORCING_CHAIN:
       case SolutionType.FORCING_NET:
-        return this.tabling;
+        return this._tabling;
 
       default:
         return null;

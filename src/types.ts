@@ -101,3 +101,22 @@ export type DifficultyType =
   | "HARD"
   | "UNFAIR"
   | "EXTREME";
+
+/**
+ * Result returned by {@link SudokuSolver.solveWithRating}.
+ * Mirrors the information Java's {@code SudokuSolver.solve(DifficultyLevel, ...)} writes
+ * onto the sudoku after a successful solve.
+ */
+export interface SolveRating {
+  /** Whether the puzzle was fully solved. */
+  solved: boolean;
+  /**
+   * Cumulative HoDoKu score (sum of base scores for every applied step).
+   * Thresholds: EASY ≤ 800, MEDIUM ≤ 1000, HARD ≤ 1600, UNFAIR ≤ 1800, EXTREME = ∞.
+   */
+  score: number;
+  /** Difficulty band determined from the accumulated score. */
+  difficulty: DifficultyType;
+  /** Every step applied during the solve, in order. */
+  steps: import("./Sudoku2").SolutionStep[];
+}
