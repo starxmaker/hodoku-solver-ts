@@ -341,9 +341,9 @@ export class SudokuSolver extends AbstractSolver {
 
       case SolutionType.SIMPLE_COLORS:
       case SolutionType.MULTI_COLORS:
-      case SolutionType.REMOTE_PAIR:
         return this._coloring;
 
+      case SolutionType.REMOTE_PAIR:
       case SolutionType.X_CHAIN:
       case SolutionType.XY_CHAIN:
         return this._chain;

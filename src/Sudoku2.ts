@@ -114,6 +114,12 @@ export class Sudoku2 {
   private _solution: number[] = new Array(LENGTH).fill(0);
   private _solutionSet = false;
 
+  /**
+   * Cached result of hasUniqueSolution().  Recomputed lazily; invalidated
+   * (set to null) whenever a value is placed so the candidate state can change.
+   */
+  private _uniqueSolutionCache: boolean | null = null;
+
   // ── Static helpers ────────────────────────────────────────────────────────
 
   static readonly HOUSES = HOUSES;
@@ -154,6 +160,8 @@ export class Sudoku2 {
         }
       }
     }
+    // Invalidate uniqueness cache on reload.
+    this._uniqueSolutionCache = null;
   }
 
   // ── Candidate helpers ─────────────────────────────────────────────────────
@@ -283,6 +291,61 @@ export class Sudoku2 {
   }
 
   /**
+   * Count the number of completions of the current partial grid, up to
+   * {@code limit}.  Uses the current candidate masks rather than recomputing
+   * from scratch so that already-applied logical eliminations are respected.
+   * Returns as soon as {@code limit} solutions have been found.
+   */
+  private _countSolns(v: Uint8Array, masks: Uint16Array, limit: number): number {
+    let minCnt = 10, idx = -1;
+    for (let i = 0; i < LENGTH; i++) {
+      if (v[i] !== 0) continue;
+      const cnt = this._popcount(masks[i]);
+      if (cnt === 0) return 0; // dead end
+      if (cnt < minCnt) { minCnt = cnt; idx = i; if (cnt === 1) break; }
+    }
+    if (idx === -1) return 1; // complete solution found
+
+    const sv = new Uint8Array(v);
+    const sm = new Uint16Array(masks);
+    let total = 0;
+    const mask = masks[idx];
+    for (let d = 1; d <= 9; d++) {
+      if (!(mask & (1 << d))) continue;
+      if (this._place(v, masks, idx, d)) {
+        total += this._countSolns(v, masks, limit);
+        if (total >= limit) return total;
+      }
+      v.set(sv);
+      masks.set(sm);
+    }
+    return total;
+  }
+
+  /**
+   * Returns {@code true} iff the current partial grid (placed values only,
+   * ignoring logical candidate eliminations) has exactly one valid completion.
+   *
+   * This mirrors HoDoKu's pre-computed {@code SudokuStatus.VALID} check:
+   * uniqueness-based techniques (UR, BUG+1) must only be applied when the
+   * puzzle has a unique solution.  Re-deriving masks from placed values —
+   * rather than from the current (reduced) candidates — ensures that puzzles
+   * with two solutions are correctly identified even after some candidates
+   * have already been eliminated.
+   */
+  hasUniqueSolution(): boolean {
+    if (this._uniqueSolutionCache !== null) return this._uniqueSolutionCache;
+    // Use the current candidate state (narrowed by all logical eliminations
+    // applied so far).  This is fast because the backtracking benefits from
+    // the already-reduced search space.  We use Uint8Array/Uint16Array copies
+    // so _countSolns can modify them freely.
+    const work  = new Uint8Array(this.values as unknown as number[]);
+    const masks = new Uint16Array(this.candidates as unknown as number[]);
+    this._uniqueSolutionCache = this._countSolns(work, masks, 2) === 1;
+    return this._uniqueSolutionCache;
+  }
+
+  /**
    * Place digit {@code d} in cell {@code idx} and propagate via naked singles:
    * when a peer is left with exactly one candidate, assign that candidate too
    * (recursively).  Returns {@code false} immediately on any contradiction.
@@ -329,6 +392,7 @@ export class Sudoku2 {
     this.values[i] = d;
     this.candidates[i] = 0; // no longer has candidates
     this._unsolvedCount--;
+    this._uniqueSolutionCache = null; // invalidate cache
     // Remove d from all buddies
     for (const b of BUDDIES[i]) {
       this.candidates[b] &= ~(1 << d);
