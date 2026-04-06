@@ -80,9 +80,9 @@ describe("SudokuSolver — solution snapshots", () => {
     ["skyscraper",  P.SKYSCRAPER_PUZZLE,   SKYSCRAPER_SOLUTION],
     ["remote-pair", P.REMOTE_PAIR_PUZZLE,  REMOTE_PAIR_SOLUTION],
     ["als-xz",      P.ALS_XZ_PUZZLE,       ALS_XZ_SOLUTION],
-  ])("%s puzzle matches Java reference output", (_name, puzzle, expected) => {
+  ])("%s puzzle matches Java reference output", async (_name, puzzle, expected) => {
     const solver = makeSolver(puzzle);
-    solver.solve();
+    await solver.solve();
     const actual = solver.getSudoku().toValueString();
     expect(actual).toBe(expected);
   });
@@ -139,29 +139,29 @@ describe("SudokuSolver — step elimination snapshots", () => {
 describe("SudokuSolver — difficulty rating", () => {
   // ── fully-solved puzzles ──────────────────────────────────────────────────
 
-  test("easy puzzle: solved=true, difficulty=EASY, score=196", () => {
-    const r = SudokuSolver.rate(P.EASY_PUZZLE);
+  test("easy puzzle: solved=true, difficulty=EASY, score=196", async () => {
+    const r = await SudokuSolver.rate(P.EASY_PUZZLE);
     expect(r.solved).toBe(true);
     expect(r.difficulty).toBe("EASY");
     expect(r.score).toBe(196);
   });
 
-  test("naked-pair puzzle: solved=true, difficulty=EASY, score=298", () => {
-    const r = SudokuSolver.rate(P.NAKED_PAIR_PUZZLE);
+  test("naked-pair puzzle: solved=true, difficulty=EASY, score=298", async () => {
+    const r = await SudokuSolver.rate(P.NAKED_PAIR_PUZZLE);
     expect(r.solved).toBe(true);
     expect(r.difficulty).toBe("EASY");
     expect(r.score).toBe(298);
   });
 
-  test("als-xz puzzle: solved=true, difficulty=EASY, score=496", () => {
-    const r = SudokuSolver.rate(P.ALS_XZ_PUZZLE);
+  test("als-xz puzzle: solved=true, difficulty=EASY, score=496", async () => {
+    const r = await SudokuSolver.rate(P.ALS_XZ_PUZZLE);
     expect(r.solved).toBe(true);
     expect(r.difficulty).toBe("EASY");
     expect(r.score).toBe(496);
   });
 
-  test("uniqueness-1 puzzle: solved=true, difficulty=EASY, score=794", () => {
-    const r = SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE);
+  test("uniqueness-1 puzzle: solved=true, difficulty=EASY, score=794", async () => {
+    const r = await SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE);
     expect(r.solved).toBe(true);
     expect(r.difficulty).toBe("EASY");
     expect(r.score).toBe(794);
@@ -169,42 +169,39 @@ describe("SudokuSolver — difficulty rating", () => {
 
   // ── steps are collected ───────────────────────────────────────────────────
 
-  test("easy puzzle: steps list is non-empty and matches step count", () => {
-    const r = SudokuSolver.rate(P.EASY_PUZZLE);
+  test("easy puzzle: steps list is non-empty and matches step count", async () => {
+    const r = await SudokuSolver.rate(P.EASY_PUZZLE);
     expect(r.steps.length).toBe(49);
     expect(r.steps[0].type).toBeDefined();
   });
 
   // ── maxDifficulty cap ─────────────────────────────────────────────────────
 
-  test("uniqueness-1 puzzle capped at HARD: solved=true since score ≤ 1600", () => {
-    const r = SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE, "HARD");
+  test("uniqueness-1 puzzle capped at HARD: solved=true since score ≤ 1600", async () => {
+    const r = await SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE, "HARD");
     expect(r.solved).toBe(true);
     expect(r.score).toBeLessThanOrEqual(1600);
   });
 
-  test("easy puzzle capped at EASY: still fully solved within cap", () => {
-    const r = SudokuSolver.rate(P.EASY_PUZZLE, "EASY");
+  test("easy puzzle capped at EASY: still fully solved within cap", async () => {
+    const r = await SudokuSolver.rate(P.EASY_PUZZLE, "EASY");
     expect(r.solved).toBe(true);
     expect(r.score).toBeLessThanOrEqual(800);
   });
 
   // ── Sue de Coq appears in the uniqueness-1 solve path ───────────────────
 
-  test("uniqueness-1 puzzle solve path includes at least one NICE_LOOP step", () => {
-    const r = SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE);
+  test("uniqueness-1 puzzle solve path includes at least one NICE_LOOP step", async () => {
+    const r = await SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE);
     expect(r.steps.some(s => s.type === SolutionType.NICE_LOOP)).toBe(true);
   });
 
   // ── instance method solveWithRating gives same result as static rate ──────
 
-  test("solveWithRating matches SudokuSolver.rate for naked-pair puzzle", () => {
-    const { Sudoku2: Sudoku2Class } = require("../src/index");
-    const sudoku = new Sudoku2Class();
-    sudoku.setSudoku(P.NAKED_PAIR_PUZZLE);
+  test("solveWithRating matches SudokuSolver.rate for naked-pair puzzle", async () => {
     const solver = makeSolver(P.NAKED_PAIR_PUZZLE);
-    const r = solver.solveWithRating();
-    const rStatic = SudokuSolver.rate(P.NAKED_PAIR_PUZZLE);
+    const r = await solver.solveWithRating();
+    const rStatic = await SudokuSolver.rate(P.NAKED_PAIR_PUZZLE);
     expect(r.solved).toBe(rStatic.solved);
     expect(r.score).toBe(rStatic.score);
     expect(r.difficulty).toBe(rStatic.difficulty);
@@ -255,8 +252,8 @@ describe("IncompleteSolver", () => {
     expect(step).toBeNull();
   });
 
-  test("INCOMPLETE is never returned during a normal solve", () => {
-    const r = SudokuSolver.rate(P.EASY_PUZZLE);
+  test("INCOMPLETE is never returned during a normal solve", async () => {
+    const r = await SudokuSolver.rate(P.EASY_PUZZLE);
     expect(r.steps.some(s => s.type === SolutionType.INCOMPLETE)).toBe(false);
   });
 });
@@ -266,10 +263,10 @@ describe("IncompleteSolver", () => {
 // ---------------------------------------------------------------------------
 
 describe("BruteForceSolver", () => {
-  test("getStep(BRUTE_FORCE) returns null for an already-solved puzzle", () => {
+  test("getStep(BRUTE_FORCE) returns null for an already-solved puzzle", async () => {
     // Solve the easy puzzle fully, then ask for brute force
     const solver = makeSolver(P.EASY_PUZZLE);
-    solver.solve();
+    await solver.solve();
     expect(solver.getSudoku().isSolved).toBe(true);
     const step = solver.getStep(SolutionType.BRUTE_FORCE);
     expect(step).toBeNull();
@@ -320,16 +317,16 @@ describe("TemplateSolver", () => {
     expect(solver.getStep(SolutionType.INCOMPLETE)).toBeNull();
   });
 
-  test("getStep(TEMPLATE_SET) returns null for an already-solved puzzle", () => {
+  test("getStep(TEMPLATE_SET) returns null for an already-solved puzzle", async () => {
     const solver = makeSolver(P.EASY_PUZZLE);
-    solver.solve();
+    await solver.solve();
     expect(solver.getSudoku().isSolved).toBe(true);
     expect(solver.getStep(SolutionType.TEMPLATE_SET)).toBeNull();
   });
 
-  test("getStep(TEMPLATE_DEL) returns null for an already-solved puzzle", () => {
+  test("getStep(TEMPLATE_DEL) returns null for an already-solved puzzle", async () => {
     const solver = makeSolver(P.EASY_PUZZLE);
-    solver.solve();
+    await solver.solve();
     expect(solver.getSudoku().isSolved).toBe(true);
     expect(solver.getStep(SolutionType.TEMPLATE_DEL)).toBeNull();
   });

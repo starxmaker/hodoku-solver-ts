@@ -216,8 +216,9 @@ export class SudokuSolver extends AbstractSolver {
   }
 
   /** Solve the puzzle using techniques in difficulty order. */
-  solve(): void {
+  async solve(): Promise<void> {
     for (let i = 0; i < 10_000 && !this.sudoku.isSolved; i++) {
+      await new Promise<void>(r => setTimeout(r, 0));
       let stepped = false;
       for (const type of TECHNIQUE_ORDER) {
         const step = this._solverFor(type)?.getStep(type);
@@ -243,12 +244,13 @@ export class SudokuSolver extends AbstractSolver {
    *                       returning {@code solved: false}.  Omit (or pass
    *                       {@code "EXTREME"}) to always solve to completion.
    */
-  solveWithRating(maxDifficulty: DifficultyType = "EXTREME"): SolveRating {
+  async solveWithRating(maxDifficulty: DifficultyType = "EXTREME"): Promise<SolveRating> {
     const maxThreshold = DIFFICULTY_LEVELS.find(d => d.name === maxDifficulty)!.maxScore;
     const steps: SolutionStep[] = [];
     let score = 0;
 
     outer: for (let i = 0; i < 10_000 && !this.sudoku.isSolved; i++) {
+      await new Promise<void>(r => setTimeout(r, 0));
       for (const type of TECHNIQUE_ORDER) {
         const step = this._solverFor(type)?.getStep(type);
         if (step) {
@@ -288,7 +290,7 @@ export class SudokuSolver extends AbstractSolver {
    * @param puzzle        81-character string; '0' or '.' for empty cells.
    * @param maxDifficulty Optional cap — same as {@link solveWithRating}.
    */
-  static rate(puzzle: string, maxDifficulty: DifficultyType = "EXTREME"): SolveRating {
+  static async rate(puzzle: string, maxDifficulty: DifficultyType = "EXTREME"): Promise<SolveRating> {
     const sudoku = new Sudoku2();
     sudoku.setSudoku(puzzle);
     const solver = new SudokuSolver();
