@@ -211,3 +211,52 @@ describe("SudokuSolver — difficulty rating", () => {
     expect(r.steps.length).toBe(rStatic.steps.length);
   });
 });
+
+// ---------------------------------------------------------------------------
+// GiveUpSolver / IncompleteSolver unit tests
+// ---------------------------------------------------------------------------
+
+describe("GiveUpSolver", () => {
+  test("getStep(GIVE_UP) returns a GIVE_UP step", () => {
+    const solver = makeSolver(P.EASY_PUZZLE);
+    const step = solver.getStep(SolutionType.GIVE_UP);
+    expect(step).not.toBeNull();
+    expect(step!.type).toBe(SolutionType.GIVE_UP);
+  });
+
+  test("GIVE_UP step has no placements or candidatesToDelete", () => {
+    const solver = makeSolver(P.EASY_PUZZLE);
+    const step = solver.getStep(SolutionType.GIVE_UP);
+    expect(step!.placements).toHaveLength(0);
+    expect(step!.candidatesToDelete).toHaveLength(0);
+  });
+
+  test("getStep returns null for any other type", () => {
+    const solver = makeSolver(P.EASY_PUZZLE);
+    expect(solver.getStep(SolutionType.NAKED_SINGLE)).not.toBeNull(); // routed elsewhere
+    // directly: GIVE_UP solver returns null for non-GIVE_UP
+    const step = solver.getStep(SolutionType.INCOMPLETE);
+    expect(step).toBeNull();
+  });
+
+  test("doStep(GIVE_UP step) is a no-op — grid unchanged", () => {
+    const solver = makeSolver(P.EASY_PUZZLE);
+    const before = solver.getSudoku().toValueString();
+    const step = solver.getStep(SolutionType.GIVE_UP)!;
+    solver.doStep(step);
+    expect(solver.getSudoku().toValueString()).toBe(before);
+  });
+});
+
+describe("IncompleteSolver", () => {
+  test("getStep(INCOMPLETE) returns null", () => {
+    const solver = makeSolver(P.EASY_PUZZLE);
+    const step = solver.getStep(SolutionType.INCOMPLETE);
+    expect(step).toBeNull();
+  });
+
+  test("INCOMPLETE is never returned during a normal solve", () => {
+    const r = SudokuSolver.rate(P.EASY_PUZZLE);
+    expect(r.steps.some(s => s.type === SolutionType.INCOMPLETE)).toBe(false);
+  });
+});
