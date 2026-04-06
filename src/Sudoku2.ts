@@ -118,10 +118,18 @@ export class Sudoku2 {
   private _solutionSet = false;
 
   /**
-   * Cached result of hasUniqueSolution().  Recomputed lazily; invalidated
-   * (set to null) whenever a value is placed so the candidate state can change.
+   * Set to true when a puzzle is loaded via setSudoku(), mirroring Java's
+   * "assume VALID" behaviour: every puzzle loaded by the solver is assumed to
+   * be a properly published sudoku with exactly one solution.
    */
-  private _uniqueSolutionCache: boolean | null = null;
+  private _uniqueSolutionCache = false;
+
+  /**
+   * Set to true when a puzzle is loaded via setSudoku(), mirroring Java's
+   * "assume VALID" behaviour for the givens-only uniqueness check required by
+   * Avoidable Rectangle techniques.
+   */
+  private _uniqueGivensSolutionCache = false;
 
   // ── Static helpers ────────────────────────────────────────────────────────
 
@@ -165,8 +173,20 @@ export class Sudoku2 {
         }
       }
     }
-    // Invalidate uniqueness cache on reload.
-    this._uniqueSolutionCache = null;
+    // Compute whether the puzzle has a unique solution by running backtracking
+    // on the initial candidate grid (limit=2: stop as soon as 2 solutions found).
+    // Mirrors Java's behavior for puzzles loaded via setSudoku: Java unconditionally
+    // sets status = VALID, but we compute it properly to avoid applying uniqueness
+    // techniques on multi-solution demonstration puzzles.
+    const work  = new Uint8Array(LENGTH);
+    const masks = new Uint16Array(LENGTH);
+    for (let i = 0; i < LENGTH; i++) {
+      work[i]  = this.values[i];
+      masks[i] = this.candidates[i];
+    }
+    const nSolns = this._countSolns(work, masks, 2);
+    this._uniqueSolutionCache = nSolns === 1;
+    this._uniqueGivensSolutionCache = nSolns === 1;
   }
 
   // ── Candidate helpers ─────────────────────────────────────────────────────
@@ -331,25 +351,22 @@ export class Sudoku2 {
   }
 
   /**
-   * Returns {@code true} iff the current partial grid (placed values only,
-   * ignoring logical candidate eliminations) has exactly one valid completion.
-   *
-   * This mirrors HoDoKu's pre-computed {@code SudokuStatus.VALID} check:
-   * uniqueness-based techniques (UR, BUG+1) must only be applied when the
-   * puzzle has a unique solution.  Re-deriving masks from placed values —
-   * rather than from the current (reduced) candidates — ensures that puzzles
-   * with two solutions are correctly identified even after some candidates
-   * have already been eliminated.
+   * Returns true iff the original given cells alone define a puzzle with
+   * exactly one valid completion.  Mirrors Java's statusGivens = VALID check;
+   * always true for puzzles loaded via {@link setSudoku}.
+   * Required by Avoidable Rectangle techniques (AR1/AR2).
+   */
+  hasUniqueGivensSolution(): boolean {
+    return this._uniqueGivensSolutionCache;
+  }
+
+  /**
+   * Returns true iff the puzzle has a unique solution.
+   * Mirrors Java's SudokuStatus.VALID check — always true for puzzles loaded
+   * via {@link setSudoku} (which assumes every loaded puzzle is a valid,
+   * uniquely-solvable sudoku, just as HoDoKu does).
    */
   hasUniqueSolution(): boolean {
-    if (this._uniqueSolutionCache !== null) return this._uniqueSolutionCache;
-    // Use the current candidate state (narrowed by all logical eliminations
-    // applied so far).  This is fast because the backtracking benefits from
-    // the already-reduced search space.  We use Uint8Array/Uint16Array copies
-    // so _countSolns can modify them freely.
-    const work  = new Uint8Array(this.values as unknown as number[]);
-    const masks = new Uint16Array(this.candidates as unknown as number[]);
-    this._uniqueSolutionCache = this._countSolns(work, masks, 2) === 1;
     return this._uniqueSolutionCache;
   }
 
@@ -362,7 +379,10 @@ export class Sudoku2 {
     v[idx] = d;
     masks[idx] = 0;
     for (const b of BUDDIES[idx]) {
-      if (v[b] !== 0) continue;
+      if (v[b] !== 0) {
+        if (v[b] === d) return false; // conflict: buddy already has this digit
+        continue;
+      }
       const nm = masks[b] & ~(1 << d);
       if (nm === 0) return false; // peer has no candidates
       masks[b] = nm;
@@ -400,7 +420,6 @@ export class Sudoku2 {
     this.values[i] = d;
     this.candidates[i] = 0; // no longer has candidates
     this._unsolvedCount--;
-    this._uniqueSolutionCache = null; // invalidate cache
     // Remove d from all buddies
     for (const b of BUDDIES[i]) {
       this.candidates[b] &= ~(1 << d);

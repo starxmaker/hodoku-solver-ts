@@ -32,6 +32,6 @@ export const FINNED_X_WING_PUZZLE =
   "030000080200050000000906000000400903008000500106003000000805000000090008050000030";
 
 // A puzzle that requires brute force — the logical solver cannot fully crack it.
-// (Chosen to leave unsolved cells after all implemented logical techniques.)
+// Easter Monster — rated 11.8 by SudokuExplainer (Java reference puzzle).
 export const BRUTE_FORCE_PUZZLE =
-  "800000000003600000070090200060005300000300000000010070006000028000419005000000000";
+  "100000002090400050006000700050903000000070000000850040700000600030009080002000001";

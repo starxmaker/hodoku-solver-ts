@@ -34,9 +34,19 @@ export class UniquenessSolver extends AbstractSolver {
   override getStep(type: typeof SolutionType[keyof typeof SolutionType]): SolutionStep | null {
     switch (type) {
       case SolutionType.UNIQUENESS_1:          return this._findUR1();
+      case SolutionType.UNIQUENESS_2:
+      case SolutionType.UNIQUENESS_3:
+      case SolutionType.UNIQUENESS_4:
+      case SolutionType.UNIQUENESS_5:
+      case SolutionType.UNIQUENESS_6:
+      case SolutionType.HIDDEN_RECTANGLE:
+        if (!this.sudoku.hasUniqueSolution()) return null;
+        return this._findUR(type);
+      case SolutionType.AVOIDABLE_RECTANGLE_1:
+      case SolutionType.AVOIDABLE_RECTANGLE_2:
+        if (!this.sudoku.hasUniqueSolution() || !this.sudoku.hasUniqueGivensSolution()) return null;
+        return this._findAvoidableRectangle(type);
       case SolutionType.BUG_PLUS_1:            return this._findBugPlus1();
-      // AR1, AR2 disabled: missing unavoidable-set validity check (same issue as UR2-6)
-      // UR2-6 and HIDDEN_RECTANGLE disabled: implementation missing swap-validity check
       default:                                 return null;
     }
   }
@@ -102,53 +112,91 @@ export class UniquenessSolver extends AbstractSolver {
 
   // -------------------------------------------------------------------------
   // Enumerate all valid UR rectangles and dispatch to the appropriate checker.
+  // Mirrors Java's getAllUniquenessInternal: iterate bivalue cells as the anchor
+  // corner (i11), then search for i12 in the same box sharing a row or column.
   // -------------------------------------------------------------------------
   private _findUR(targetType: typeof SolutionType[keyof typeof SolutionType]): SolutionStep | null {
     const BUDDIES = Sudoku2.BUDDIES;
     const HOUSES  = Sudoku2.HOUSES;
-    for (let r1 = 0; r1 < 8; r1++) {
-      for (let r2 = r1 + 1; r2 < 9; r2++) {
-        for (let c1 = 0; c1 < 8; c1++) {
-          for (let c2 = c1 + 1; c2 < 9; c2++) {
-            const i11 = r1 * 9 + c1;
-            const i12 = r1 * 9 + c2;
+
+    // Java-compatible iteration: bivalue cells as anchor (i11), ordered by index.
+    for (let i11 = 0; i11 < 81; i11++) {
+      if (this.sudoku.values[i11] !== 0) continue;
+      if (this.sudoku.candidateCount(i11) !== 2) continue;
+
+      // Extract the two candidates (da < db).
+      let da = -1, db = -1;
+      for (let d = 1; d <= 9; d++) {
+        if (this.sudoku.isCandidate(i11, d)) {
+          if (da === -1) da = d; else { db = d; break; }
+        }
+      }
+
+      const r1   = Sudoku2.row(i11);
+      const c1   = Sudoku2.col(i11);
+      const box11 = Sudoku2.box(i11);
+      const urMask = (1 << da) | (1 << db);
+
+      // Find i12 in the same box as i11, sharing a row OR a column,
+      // with both UR candidates present.
+      for (const i12 of HOUSES[18 + box11]) {
+        if (i12 === i11) continue;
+        if (this.sudoku.values[i12] !== 0) continue;
+        if (!this.sudoku.isCandidate(i12, da) || !this.sudoku.isCandidate(i12, db)) continue;
+
+        const r12 = Sudoku2.row(i12);
+        const c12 = Sudoku2.col(i12);
+        const sameRow = r1 === r12;
+        const sameCol = c1 === c12;
+        if (!sameRow && !sameCol) continue;
+
+        if (sameRow) {
+          // i11=(r1,c1), i12=(r1,c12). Complete with rows r2 ≠ r1 in different box.
+          const c2 = c12;
+          for (let r2 = 0; r2 < 9; r2++) {
+            if (r2 === r1) continue;
             const i21 = r2 * 9 + c1;
             const i22 = r2 * 9 + c2;
-
-            // The rectangle must span exactly 2 distinct boxes.
-            const boxes = new Set([Sudoku2.box(i11), Sudoku2.box(i12),
-                                   Sudoku2.box(i21), Sudoku2.box(i22)]);
-            if (boxes.size !== 2) continue;
+            if (Sudoku2.box(i21) === box11) continue; // must be a different box
+            if (this.sudoku.values[i21] !== 0 || this.sudoku.values[i22] !== 0) continue;
+            if (!this.sudoku.isCandidate(i21, da) || !this.sudoku.isCandidate(i21, db)) continue;
+            if (!this.sudoku.isCandidate(i22, da) || !this.sudoku.isCandidate(i22, db)) continue;
 
             const corners = [i11, i12, i21, i22] as const;
-
-            for (let da = 1; da <= 8; da++) {
-              for (let db = da + 1; db <= 9; db++) {
-                const urMask = (1 << da) | (1 << db);
-
-                // All four corners must be unsolved with both UR candidates.
-                if (!corners.every(i =>
-                  this.sudoku.values[i] === 0 &&
-                  this.sudoku.isCandidate(i, da) &&
-                  this.sudoku.isCandidate(i, db)
-                )) continue;
-
-                // Classify corners.
-                const twoOnly: number[]   = [];   // have ONLY {da,db}
-                const withExtra: number[] = [];   // have {da,db} + more
-
-                for (const i of corners) {
-                  if ((this.sudoku.candidates[i] & ~urMask) === 0) twoOnly.push(i);
-                  else withExtra.push(i);
-                }
-
-                const step = this._checkUR(
-                  targetType, corners, twoOnly, withExtra,
-                  da, db, urMask, r1, r2, c1, c2, HOUSES, BUDDIES,
-                );
-                if (step) return step;
-              }
+            const twoOnly: number[] = [], withExtra: number[] = [];
+            for (const ci of corners) {
+              if ((this.sudoku.candidates[ci] & ~urMask) === 0) twoOnly.push(ci);
+              else withExtra.push(ci);
             }
+            const step = this._checkUR(
+              targetType, corners, twoOnly, withExtra,
+              da, db, urMask, r1, r2, c1, c2, HOUSES, BUDDIES,
+            );
+            if (step) return step;
+          }
+        } else {
+          // sameCol: i11=(r1,c1), i12=(r12,c1). Complete with cols c2 ≠ c1.
+          const r2 = r12;
+          for (let c2 = 0; c2 < 9; c2++) {
+            if (c2 === c1) continue;
+            const i21 = r1 * 9 + c2;
+            const i22 = r2 * 9 + c2;
+            if (Sudoku2.box(i21) === box11) continue; // must be a different box
+            if (this.sudoku.values[i21] !== 0 || this.sudoku.values[i22] !== 0) continue;
+            if (!this.sudoku.isCandidate(i21, da) || !this.sudoku.isCandidate(i21, db)) continue;
+            if (!this.sudoku.isCandidate(i22, da) || !this.sudoku.isCandidate(i22, db)) continue;
+
+            const corners = [i11, i12, i21, i22] as const;
+            const twoOnly: number[] = [], withExtra: number[] = [];
+            for (const ci of corners) {
+              if ((this.sudoku.candidates[ci] & ~urMask) === 0) twoOnly.push(ci);
+              else withExtra.push(ci);
+            }
+            const step = this._checkUR(
+              targetType, corners, twoOnly, withExtra,
+              da, db, urMask, r1, r2, c1, c2, HOUSES, BUDDIES,
+            );
+            if (step) return step;
           }
         }
       }

@@ -160,11 +160,11 @@ describe("SudokuSolver — difficulty rating", () => {
     expect(r.score).toBe(496);
   });
 
-  test("uniqueness-1 puzzle: solved=true, difficulty=EASY, score=794", async () => {
+  test("uniqueness-1 puzzle: solved=true, difficulty=EASY, score=624", async () => {
     const r = await SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE);
     expect(r.solved).toBe(true);
     expect(r.difficulty).toBe("EASY");
-    expect(r.score).toBe(794);
+    expect(r.score).toBe(624);
   });
 
   // ── steps are collected ───────────────────────────────────────────────────
@@ -191,9 +191,17 @@ describe("SudokuSolver — difficulty rating", () => {
 
   // ── Sue de Coq appears in the uniqueness-1 solve path ───────────────────
 
-  test("uniqueness-1 puzzle solve path includes at least one NICE_LOOP step", async () => {
+  test("uniqueness-1 puzzle solve path includes at least one uniqueness step", async () => {
     const r = await SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE);
-    expect(r.steps.some(s => s.type === SolutionType.NICE_LOOP)).toBe(true);
+    const hasUniqueness = r.steps.some(s =>
+      s.type === SolutionType.UNIQUENESS_1 ||
+      s.type === SolutionType.UNIQUENESS_2 ||
+      s.type === SolutionType.UNIQUENESS_3 ||
+      s.type === SolutionType.UNIQUENESS_4 ||
+      s.type === SolutionType.UNIQUENESS_5 ||
+      s.type === SolutionType.UNIQUENESS_6
+    );
+    expect(hasUniqueness).toBe(true);
   });
 
   // ── instance method solveWithRating gives same result as static rate ──────

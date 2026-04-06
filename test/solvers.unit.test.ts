@@ -28,6 +28,15 @@ const EASY_PUZZLE            = "003020600900305001001806400008102900700000008006
 // New puzzle strings for Phase 3 / Phase 4 solver techniques.
 // Advancement: SINGLES = [FULL_HOUSE, NAKED_SINGLE, HIDDEN_SINGLE] only.
 const SWORDFISH_REF_PUZZLE   = "900080010050009006003607500010000800002030070300060000500000060080093020004000300";
+
+// Phase 4: unique-solution puzzles for UR2–6, Hidden Rectangle.
+// Puzzle sources: Andrew Stuart's SudokuWiki example grids.
+// All verified unique via _countSolns — hasUniqueSolution() === true.
+const UR2_PUZZLE   = "020000000060000794809060200700003000900102003000500008004020507682000030000000010";
+const UR3_PUZZLE   = "000206803002000050060700009003090005050000020100040900500008070030000400807009000";
+const UR4_PUZZLE   = "030090000000000604906000350060180700090040020004035010048000205703000000000010030";
+const UR6_PUZZLE   = "070903080000020000200407001605000109020000060708000205900205006000070000010309020";
+const HR_PUZZLE    = "000503470500800000000090002850000600024607590006000037200060000000008005043902000";
 const JELLYFISH_PUZZLE       = "654020071200107546001456002127630450006501207509270160005812000902000015010005020";
 const SQUIRMBAG_PUZZLE       = "900000561006010793710096248600021479000000005000040006420058617507102004001000052";
 const FINNED_SW_PUZZLE       = "000000000904000500020030040200070030060000010090060007040090020007000608000000000";
@@ -677,6 +686,297 @@ describe("UniquenessSolver", () => {
     test("search does not throw on easy puzzle", () => {
       const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.BUG_PLUS_1)).not.toThrow();
+    });
+  });
+
+  // ── Uniqueness Type 1 (UR1) ──────────────────────────────────────────────
+
+  // UR1 fires on UNIQUENESS_1_PUZZLE after advancing with basic techniques.
+  // (Positive elimination snapshot is already verified in solver.snapshot.test.ts.)
+  describe("Uniqueness Type 1", () => {
+    const UNIQUENESS_1_PUZZLE = "000806000200010074009700010006000201300000600020000000030005000002000080810002953";
+
+    test("finds a step after singles advancement", () => {
+      const solver = makeSolver(UNIQUENESS_1_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.UNIQUENESS_1);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.UNIQUENESS_1);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(UNIQUENESS_1_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.UNIQUENESS_1)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.UNIQUENESS_1)).not.toThrow();
+    });
+  });
+
+  // ── Uniqueness Type 2 (UR2) ──────────────────────────────────────────────
+
+  // UR2 fires on UR2_PUZZLE (SWiki_UR2_Fig3) after advancing with singles.
+  describe("Uniqueness Type 2", () => {
+    test("finds a step after singles advancement", () => {
+      const solver = makeSolver(UR2_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.UNIQUENESS_2);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.UNIQUENESS_2);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(UR2_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.UNIQUENESS_2)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("returns null on multi-solution puzzle", () => {
+      // ALS_REF_PUZZLE has 4 solutions → hasUniqueSolution()=false → guard fires
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.UNIQUENESS_2);
+      expect(step).toBeNull();
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.UNIQUENESS_2)).not.toThrow();
+    });
+  });
+
+  // ── Uniqueness Type 3 (UR3) ──────────────────────────────────────────────
+
+  // UR3 fires on UR3_PUZZLE (SWiki_UR3b) after Phase-0 advancement.
+  describe("Uniqueness Type 3", () => {
+    test("finds a step after Phase-0 advancement", () => {
+      const solver = makeSolver(UR3_PUZZLE);
+      advanceTechniques(solver, PHASE_0);
+      const step = solver.getStep(SolutionType.UNIQUENESS_3);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.UNIQUENESS_3);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(UR3_PUZZLE);
+      advanceTechniques(solver, PHASE_0);
+      const step = solver.getStep(SolutionType.UNIQUENESS_3)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("returns null on multi-solution puzzle", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.UNIQUENESS_3);
+      expect(step).toBeNull();
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.UNIQUENESS_3)).not.toThrow();
+    });
+  });
+
+  // ── Uniqueness Type 4 (UR4) ──────────────────────────────────────────────
+
+  // UR4 fires on UR4_PUZZLE (SWiki_UR4) immediately (raw state).
+  describe("Uniqueness Type 4", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(UR4_PUZZLE);
+      const step = solver.getStep(SolutionType.UNIQUENESS_4);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.UNIQUENESS_4);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(UR4_PUZZLE);
+      const step = solver.getStep(SolutionType.UNIQUENESS_4)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("returns null on multi-solution puzzle", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.UNIQUENESS_4);
+      expect(step).toBeNull();
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.UNIQUENESS_4)).not.toThrow();
+    });
+  });
+
+  // ── Uniqueness Type 5 (UR5) ──────────────────────────────────────────────
+
+  // UR5 is a rare diagonal variant of UR2. No confirmed test puzzle available;
+  // tests verify the search does not crash and honours the uniqueness guard.
+  describe("Uniqueness Type 5", () => {
+    test("returns null on multi-solution puzzle", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.UNIQUENESS_5);
+      expect(step).toBeNull();
+    });
+
+    test("search does not throw on unique-solution puzzle", () => {
+      const solver = makeSolver(UR2_PUZZLE);
+      advanceTechniques(solver, PHASE_0);
+      expect(() => solver.getStep(SolutionType.UNIQUENESS_5)).not.toThrow();
+      const step = solver.getStep(SolutionType.UNIQUENESS_5);
+      if (step !== null) {
+        expect(step.type).toBe(SolutionType.UNIQUENESS_5);
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.UNIQUENESS_5)).not.toThrow();
+    });
+  });
+
+  // ── Uniqueness Type 6 (UR6) ──────────────────────────────────────────────
+
+  // UR6 fires on UR6_PUZZLE (SWiki_UR2_Fig4) after Phase-0 advancement.
+  describe("Uniqueness Type 6", () => {
+    test("finds a step after Phase-0 advancement", () => {
+      const solver = makeSolver(UR6_PUZZLE);
+      advanceTechniques(solver, PHASE_0);
+      const step = solver.getStep(SolutionType.UNIQUENESS_6);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.UNIQUENESS_6);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(UR6_PUZZLE);
+      advanceTechniques(solver, PHASE_0);
+      const step = solver.getStep(SolutionType.UNIQUENESS_6)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("returns null on multi-solution puzzle", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.UNIQUENESS_6);
+      expect(step).toBeNull();
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.UNIQUENESS_6)).not.toThrow();
+    });
+  });
+
+  // ── Hidden Rectangle (UR hidden) ─────────────────────────────────────────
+
+  // HIDDEN_RECTANGLE fires on HR_PUZZLE (SWiki_UR3) immediately (raw state).
+  describe("Hidden Rectangle", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(HR_PUZZLE);
+      const step = solver.getStep(SolutionType.HIDDEN_RECTANGLE);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.HIDDEN_RECTANGLE);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(HR_PUZZLE);
+      const step = solver.getStep(SolutionType.HIDDEN_RECTANGLE)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("returns null on multi-solution puzzle", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.HIDDEN_RECTANGLE);
+      expect(step).toBeNull();
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.HIDDEN_RECTANGLE)).not.toThrow();
+    });
+  });
+
+  // ── Avoidable Rectangle Type 1 (AR1) ──────────────────────────────────────
+
+  // AR1 requires both hasUniqueSolution() and hasUniqueGivensSolution().
+  // No confirmed positive-test puzzle found; tests verify the guard and no-crash.
+  describe("Avoidable Rectangle Type 1", () => {
+    test("returns null on multi-solution puzzle", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.AVOIDABLE_RECTANGLE_1);
+      expect(step).toBeNull();
+    });
+
+    test("search does not throw on unique-solution puzzle", () => {
+      const solver = makeSolver(UR2_PUZZLE);
+      advanceTechniques(solver, PHASE_0);
+      expect(() => solver.getStep(SolutionType.AVOIDABLE_RECTANGLE_1)).not.toThrow();
+      const step = solver.getStep(SolutionType.AVOIDABLE_RECTANGLE_1);
+      if (step !== null) {
+        expect(step.type).toBe(SolutionType.AVOIDABLE_RECTANGLE_1);
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.AVOIDABLE_RECTANGLE_1)).not.toThrow();
+    });
+  });
+
+  // ── Avoidable Rectangle Type 2 (AR2) ──────────────────────────────────────
+
+  // AR2 requires both hasUniqueSolution() and hasUniqueGivensSolution().
+  // No confirmed positive-test puzzle found; tests verify the guard and no-crash.
+  describe("Avoidable Rectangle Type 2", () => {
+    test("returns null on multi-solution puzzle", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.AVOIDABLE_RECTANGLE_2);
+      expect(step).toBeNull();
+    });
+
+    test("search does not throw on unique-solution puzzle", () => {
+      const solver = makeSolver(UR4_PUZZLE);
+      advanceTechniques(solver, PHASE_0);
+      expect(() => solver.getStep(SolutionType.AVOIDABLE_RECTANGLE_2)).not.toThrow();
+      const step = solver.getStep(SolutionType.AVOIDABLE_RECTANGLE_2);
+      if (step !== null) {
+        expect(step.type).toBe(SolutionType.AVOIDABLE_RECTANGLE_2);
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.AVOIDABLE_RECTANGLE_2)).not.toThrow();
     });
   });
 
