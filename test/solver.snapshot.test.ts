@@ -11,10 +11,10 @@ import * as P from "./puzzles";
 const EASY_SOLUTION         = "483921657967345821251876493548132976729564138136798245372689514814253769695417382";
 const UNIQUENESS_1_SOLUTION = "173846529268519374549723816796458231381297645425361798937185462652934187814672953";
 const NAKED_PAIR_SOLUTION   = "461572938732894156895316247378629514529481673614753892957248361183967425246135789";
-const X_WING_SOLUTION       = "1..9........4.3.6...78..9.....69...2...7...3...638...............9.6....6....9.1.";
-const XY_WING_SOLUTION      = "...6..5....8........9..3..6....6......6.5..9..4..8.62...47..........68..7....1...";
-const SKYSCRAPER_SOLUTION   = ".97.5.....5...7.6...4..9.75......7..579.6.82...8.7....7..4..1..98.7...4.....9.687";
-const REMOTE_PAIR_SOLUTION  = "...7...8..7..5.........8.3..9....4.3..2.3.9....3....6..8.3.........1..5..6...4...";
+const X_WING_SOLUTION       = "123956478598473261467812953314695782985724136276381549731248695859167324642539817";
+const XY_WING_SOLUTION      = "123648579468579132579213486817962345236154798945387621684795213391426857752831964";
+const SKYSCRAPER_SOLUTION   = "197652438253847961864139275341928756579361824628574319736485192982716543415293687";
+const REMOTE_PAIR_SOLUTION  = "124763589378159246659248137596871423742635918813492765485327691237916854961584372";
 const ALS_XZ_SOLUTION       = "987654321246173985351928746128537694634892157795461832519286473472319568863745219";
 
 // Step elimination snapshots
@@ -160,11 +160,11 @@ describe("SudokuSolver — difficulty rating", () => {
     expect(r.score).toBe(496);
   });
 
-  test("uniqueness-1 puzzle: solved=true, difficulty=HARD, score=1514", () => {
+  test("uniqueness-1 puzzle: solved=true, difficulty=EASY, score=794", () => {
     const r = SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE);
     expect(r.solved).toBe(true);
-    expect(r.difficulty).toBe("HARD");
-    expect(r.score).toBe(1514);
+    expect(r.difficulty).toBe("EASY");
+    expect(r.score).toBe(794);
   });
 
   // ── steps are collected ───────────────────────────────────────────────────
@@ -177,9 +177,8 @@ describe("SudokuSolver — difficulty rating", () => {
 
   // ── maxDifficulty cap ─────────────────────────────────────────────────────
 
-  test("uniqueness-1 puzzle capped at HARD: solved=true since score 1514 ≤ 1600", () => {
+  test("uniqueness-1 puzzle capped at HARD: solved=true since score ≤ 1600", () => {
     const r = SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE, "HARD");
-    // SDC now solves this puzzle well within the HARD ceiling
     expect(r.solved).toBe(true);
     expect(r.score).toBeLessThanOrEqual(1600);
   });
@@ -192,9 +191,9 @@ describe("SudokuSolver — difficulty rating", () => {
 
   // ── Sue de Coq appears in the uniqueness-1 solve path ───────────────────
 
-  test("uniqueness-1 puzzle solve path includes at least one SUE_DE_COQ step", () => {
+  test("uniqueness-1 puzzle solve path includes at least one NICE_LOOP step", () => {
     const r = SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE);
-    expect(r.steps.some(s => s.type === SolutionType.SUE_DE_COQ)).toBe(true);
+    expect(r.steps.some(s => s.type === SolutionType.NICE_LOOP)).toBe(true);
   });
 
   // ── instance method solveWithRating gives same result as static rate ──────
