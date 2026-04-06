@@ -33,9 +33,11 @@ import { AbstractSolver } from './AbstractSolver';
 export class UniquenessSolver extends AbstractSolver {
   override getStep(type: typeof SolutionType[keyof typeof SolutionType]): SolutionStep | null {
     switch (type) {
-      case SolutionType.UNIQUENESS_1:      return this._findUR1();
-      // UR2+ disabled for isolation:
-      default:                             return null;
+      case SolutionType.UNIQUENESS_1:          return this._findUR1();
+      case SolutionType.BUG_PLUS_1:            return this._findBugPlus1();
+      // AR1, AR2 disabled: missing unavoidable-set validity check (same issue as UR2-6)
+      // UR2-6 and HIDDEN_RECTANGLE disabled: implementation missing swap-validity check
+      default:                                 return null;
     }
   }
 
@@ -440,6 +442,125 @@ export class UniquenessSolver extends AbstractSolver {
       placements: [],
       candidatesToDelete: [{ index: delIdx, value: delCand as Digit }],
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // Avoidable Rectangles (AR1 & AR2).
+  // -------------------------------------------------------------------------
+  private _findAvoidableRectangle(targetType: typeof SolutionType[keyof typeof SolutionType]): SolutionStep | null {
+    const { values } = this.sudoku;
+    const HOUSES  = Sudoku2.HOUSES;
+    const BUDDIES = Sudoku2.BUDDIES;
+
+    for (let i11 = 0; i11 < 81; i11++) {
+      if (values[i11] === 0 || this.sudoku.isGiven(i11)) continue;
+      const cand1 = values[i11];
+      const row11 = Sudoku2.row(i11);
+      const col11 = Sudoku2.col(i11);
+      const box11 = Sudoku2.box(i11);
+
+      // Find i12 in same box, also solved and non-given, sharing row or col with i11.
+      for (const i12 of HOUSES[18 + box11]) {
+        if (i12 === i11) continue;
+        if (values[i12] === 0 || this.sudoku.isGiven(i12)) continue;
+
+        const row12 = Sudoku2.row(i12);
+        const col12 = Sudoku2.col(i12);
+        const sameRow = row11 === row12;
+        const sameCol = col11 === col12;
+        if (!sameRow && !sameCol) continue;
+
+        const cand2 = values[i12];
+
+        if (sameRow) {
+          // Rectangle columns: col11, col12 — iterate rows rj ≠ row11, different box.
+          for (let rj = 0; rj < 9; rj++) {
+            if (rj === row11) continue;
+            const i21 = rj * 9 + col11;
+            const i22 = rj * 9 + col12;
+            if (Sudoku2.box(i21) === box11) continue;
+            const step = this._checkAR(i11, i12, i21, i22, cand1, cand2, targetType, BUDDIES);
+            if (step) return step;
+          }
+        } else {
+          // Rectangle rows: row11, row12 — iterate cols cj ≠ col11, different box.
+          for (let cj = 0; cj < 9; cj++) {
+            if (cj === col11) continue;
+            const i21 = row11 * 9 + cj;
+            const i22 = row12 * 9 + cj;
+            if (Sudoku2.box(i21) === box11) continue;
+            const step = this._checkAR(i11, i12, i21, i22, cand1, cand2, targetType, BUDDIES);
+            if (step) return step;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  private _checkAR(
+    i11: number, i12: number,
+    i21: number, i22: number,
+    cand1: number, cand2: number,
+    targetType: typeof SolutionType[keyof typeof SolutionType],
+    BUDDIES: readonly (readonly number[])[],
+  ): SolutionStep | null {
+    const { values } = this.sudoku;
+    const v21 = values[i21];
+    const v22 = values[i22];
+
+    if (v21 !== 0 && v22 === 0) {
+      // Case 1: i21 solved with cand2 (non-given), i22 unsolved with cand1, 2-cand → AR1.
+      if (v21 !== cand2 || this.sudoku.isGiven(i21)) return null;
+      if (!this.sudoku.isCandidate(i22, cand1) || this.sudoku.candidateCount(i22) !== 2) return null;
+      if (targetType !== SolutionType.AVOIDABLE_RECTANGLE_1) return null;
+      return {
+        type: SolutionType.AVOIDABLE_RECTANGLE_1,
+        placements: [],
+        candidatesToDelete: [{ index: i22, value: cand1 as Digit }],
+      };
+
+    } else if (v21 === 0 && v22 !== 0) {
+      // Case 2: i22 solved with cand1 (non-given), i21 unsolved with cand2, 2-cand → AR1.
+      if (v22 !== cand1 || this.sudoku.isGiven(i22)) return null;
+      if (!this.sudoku.isCandidate(i21, cand2) || this.sudoku.candidateCount(i21) !== 2) return null;
+      if (targetType !== SolutionType.AVOIDABLE_RECTANGLE_1) return null;
+      return {
+        type: SolutionType.AVOIDABLE_RECTANGLE_1,
+        placements: [],
+        candidatesToDelete: [{ index: i21, value: cand2 as Digit }],
+      };
+
+    } else if (v21 === 0 && v22 === 0) {
+      // Case 3: both unsolved, each bivalue with the respective UR candidate → AR2.
+      if (!this.sudoku.isCandidate(i21, cand2) || this.sudoku.candidateCount(i21) !== 2) return null;
+      if (!this.sudoku.isCandidate(i22, cand1) || this.sudoku.candidateCount(i22) !== 2) return null;
+      if (targetType !== SolutionType.AVOIDABLE_RECTANGLE_2) return null;
+
+      // Additional candidate = the non-cand2 candidate of i21.
+      let additionalCand = -1;
+      for (let d = 1; d <= 9; d++) {
+        if (d !== cand2 && this.sudoku.isCandidate(i21, d)) { additionalCand = d; break; }
+      }
+      if (additionalCand === -1) return null;
+      if (!this.sudoku.isCandidate(i22, additionalCand)) return null;
+
+      const buds21 = new Set(BUDDIES[i21]);
+      const toDelete: { index: number; value: Digit }[] = [];
+      for (const b of BUDDIES[i22]) {
+        if (!buds21.has(b)) continue;
+        if (values[b] !== 0) continue;
+        if (!this.sudoku.isCandidate(b, additionalCand)) continue;
+        toDelete.push({ index: b, value: additionalCand as Digit });
+      }
+      if (toDelete.length === 0) return null;
+      return {
+        type: SolutionType.AVOIDABLE_RECTANGLE_2,
+        placements: [],
+        candidatesToDelete: toDelete,
+      };
+    }
+    return null;
   }
 
   // -------------------------------------------------------------------------

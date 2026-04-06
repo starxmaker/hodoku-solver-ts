@@ -84,7 +84,10 @@ function commonBuddies(cellSet: number[]): Set<number> {
 
 export class AlsSolver extends AbstractSolver {
   override getStep(type: typeof SolutionType[keyof typeof SolutionType]): SolutionStep | null {
-    if (type === SolutionType.ALS_XZ) return this._findAlsXZ();
+    if (type === SolutionType.ALS_XZ)       return this._findAlsXZ();
+    if (type === SolutionType.ALS_XY_WING)  return this._findAlsXYWing();
+    if (type === SolutionType.ALS_CHAIN)    return this._findAlsChain();
+    if (type === SolutionType.DEATH_BLOSSOM) return this._findDeathBlossom();
     return null;
   }
 
@@ -291,7 +294,6 @@ export class AlsSolver extends AbstractSolver {
   // can be eliminated from cells outside A∪B that see all occurrences.
   // -------------------------------------------------------------------------
   private _findAlsXYWing(): SolutionStep | null {
-    return null; // TODO: re-enable after correctness verified
     const alses = this._collectAlses();
     const rcs   = this._collectRCs(alses);
     const n = rcs.length;
@@ -363,7 +365,6 @@ export class AlsSolver extends AbstractSolver {
   // Adjacency rule: two consecutive RCs in the chain must use different digits.
   // -------------------------------------------------------------------------
   private _findAlsChain(): SolutionStep | null {
-    return null; // TODO: re-enable after correctness verified
     const alses = this._collectAlses();
     const rcs   = this._collectRCs(alses);
 
@@ -502,7 +503,6 @@ export class AlsSolver extends AbstractSolver {
   // occurrences of that candidate in all ALS combined.
   // -------------------------------------------------------------------------
   private _findDeathBlossom(): SolutionStep | null {
-    return null; // TODO: re-enable after correctness verified
     const alses = this._collectAlses();
 
     for (let stem = 0; stem < 81; stem++) {

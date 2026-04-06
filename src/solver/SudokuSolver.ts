@@ -55,6 +55,7 @@ const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
   SolutionType.X_WING,
   SolutionType.SWORDFISH,
   SolutionType.JELLYFISH,
+  SolutionType.SQUIRMBAG,
   SolutionType.REMOTE_PAIR,
   SolutionType.SKYSCRAPER,
   SolutionType.TWO_STRING_KITE,

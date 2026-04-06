@@ -107,6 +107,9 @@ export class Sudoku2 {
   /** Candidate bitmasks per cell. Bit (1 << d) set ↔ digit d is possible. */
   readonly candidates: CandidateGrid = new Array(LENGTH).fill(0b1111111110); // bits 1-9
 
+  /** Tracks which cells are original given (clue) cells (1 = given, 0 = not). */
+  readonly givens: Uint8Array = new Uint8Array(LENGTH);
+
   /** How many cells are still unsolved. */
   private _unsolvedCount = LENGTH;
 
@@ -148,6 +151,7 @@ export class Sudoku2 {
     }
     this.values.fill(0);
     this.candidates.fill(0b1111111110);
+    this.givens.fill(0);
     this._unsolvedCount = LENGTH;
     this._solutionSet = false;
 
@@ -156,6 +160,7 @@ export class Sudoku2 {
       if (ch !== "0" && ch !== ".") {
         const digit = parseInt(ch, 10);
         if (digit >= 1 && digit <= 9) {
+          this.givens[i] = 1;
           this._placeDigit(i, digit);
         }
       }
@@ -165,6 +170,9 @@ export class Sudoku2 {
   }
 
   // ── Candidate helpers ─────────────────────────────────────────────────────
+
+  /** Returns true if cell i was part of the original given (clue) digits. */
+  isGiven(i: number): boolean { return this.givens[i] === 1; }
 
   /** Returns true if digit d (1–9) is still a candidate in cell i. */
   isCandidate(i: number, d: number): boolean {

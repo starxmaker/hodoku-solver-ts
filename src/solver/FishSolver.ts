@@ -215,6 +215,8 @@ function fishSize(type: typeof SolutionType[keyof typeof SolutionType]): number 
     case SolutionType.FINNED_SWORDFISH: return 3;
     case SolutionType.JELLYFISH:
     case SolutionType.FINNED_JELLYFISH: return 4;
+    case SolutionType.SQUIRMBAG:
+    case SolutionType.FINNED_SQUIRMBAG: return 5;
     default: return 0;
   }
 }

@@ -126,7 +126,7 @@ export class TablingSolver extends AbstractSolver {
       case SolutionType.FORCING_CHAIN:
         return this._getForcingChain();
       case SolutionType.FORCING_NET:
-        return null; // not implemented
+        return this._getForcingNet();
       default:
         return null;
     }
@@ -146,6 +146,54 @@ export class TablingSolver extends AbstractSolver {
     this._fillTables();
     this._expandTables(this._onTable, this._offTable);
     return this._checkForcingChains();
+  }
+
+  private _getForcingNet(): SolutionStep | null {
+    this._fillTablesForNet();
+    this._expandTables(this._onTable, this._offTable);
+    const step = this._checkForcingChains();
+    if (step) return { ...step, type: SolutionType.FORCING_NET };
+    return null;
+  }
+
+  // ── fillTablesForNet() ────────────────────────────────────────────────────
+  //
+  // Java chainsOnly=false: clone the grid for each premise, propagate naked
+  // and hidden singles, record all transitive consequences in the tables.
+  // ---------------------------------------------------------------------------
+
+  private _fillTablesForNet(): void {
+    for (let i = 0; i < TABLE_SIZE; i++) {
+      this._onTable[i].reset();
+      this._onTable[i].tableIndex = i;
+      this._onTable[i].isOn = true;
+      this._offTable[i].reset();
+      this._offTable[i].tableIndex = i;
+      this._offTable[i].isOn = false;
+    }
+
+    const s = this.sudoku;
+    const wVals  = new Uint8Array(81);
+    const wCands = new Uint16Array(81);
+
+    for (let ci = 0; ci < 81; ci++) {
+      if (s.values[ci] !== 0) continue;
+      const cellMask = s.candidates[ci];
+      if (cellMask === 0) continue;
+
+      for (let d = 1; d <= 9; d++) {
+        if ((cellMask >> d & 1) === 0) continue;
+        const ti = ci * 10 + d;
+
+        // ON premise: place d in ci, propagate
+        for (let k = 0; k < 81; k++) { wVals[k] = s.values[k]; wCands[k] = s.candidates[k]; }
+        _netPropagateOn(ci, d, wVals, wCands, this._onTable[ti]);
+
+        // OFF premise: delete d from ci, propagate
+        for (let k = 0; k < 81; k++) { wVals[k] = s.values[k]; wCands[k] = s.candidates[k]; }
+        _netPropagateOff(ci, d, wVals, wCands, this._offTable[ti]);
+      }
+    }
   }
 
   // â”€â”€ fillTables() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -535,5 +583,133 @@ function _step(
   placements: { index: number; value: Digit }[] = [],
 ): SolutionStep {
   return { type, placements, candidatesToDelete };
+}
+
+// ---------------------------------------------------------------------------
+// Net propagation helpers (module-level for performance).
+//
+// Both helpers operate on mutable wVals/wCands snapshots; they record all
+// resulting placements (addSet) and eliminations (addDel) in the entry.
+//
+// BFS queue: cells to place as [cell, digit].  When a cell is placed, all
+// candidates d are removed from its buddies; if a buddy then has only one
+// candidate left it becomes a naked single.  After each round, all 27 houses
+// are scanned for hidden singles (digit that can go in only one cell).
+// ---------------------------------------------------------------------------
+
+function _netCountBits(mask: number): number {
+  let n = 0;
+  let m = mask >> 1;   // skip bit 0 (unused)
+  while (m) { n += m & 1; m >>= 1; }
+  return n;
+}
+
+function _netLowestBit(mask: number): number {
+  // Return lowest set bit ≥ 1 in a candidate bitmask.
+  for (let d = 1; d <= 9; d++) if ((mask >> d & 1) !== 0) return d;
+  return 0;
+}
+
+function _netApplyPlacement(
+  cell: number, digit: number,
+  wVals: Uint8Array, wCands: Uint16Array,
+  entry: TableEntry,
+  queue: number[],
+): void {
+  if (wVals[cell] !== 0) return;      // already placed
+  wVals[cell] = digit;
+  entry.addSet(cell, digit);
+
+  // Remove all other candidates from this cell.
+  const cmask = wCands[cell];
+  for (let d2 = 1; d2 <= 9; d2++) {
+    if (d2 !== digit && (cmask >> d2 & 1) !== 0) entry.addDel(cell, d2);
+  }
+  wCands[cell] = 0;
+
+  // Remove digit from buddies; check for naked singles.
+  for (const peer of Sudoku2.BUDDIES[cell]) {
+    if (wVals[peer] !== 0 || (wCands[peer] >> digit & 1) === 0) continue;
+    wCands[peer] &= ~(1 << digit);
+    entry.addDel(peer, digit);
+    if (_netCountBits(wCands[peer]) === 1) {
+      queue.push(peer * 10 + _netLowestBit(wCands[peer]));
+    }
+  }
+}
+
+function _netScanHiddenSingles(
+  wVals: Uint8Array, wCands: Uint16Array,
+  entry: TableEntry,
+  queue: number[],
+): void {
+  for (let h = 0; h < 27; h++) {
+    const house = HOUSE_CELLS[h] as number[];
+    for (let d = 1; d <= 9; d++) {
+      let cnt = 0; let pos = -1;
+      for (const c of house) {
+        if (wVals[c] === 0 && (wCands[c] >> d & 1) !== 0) { cnt++; pos = c; }
+      }
+      if (cnt === 1 && pos !== -1 && wVals[pos] === 0) {
+        queue.push(pos * 10 + d);
+      }
+    }
+  }
+}
+
+function _netPropagateOn(
+  ci: number, d: number,
+  wVals: Uint8Array, wCands: Uint16Array,
+  entry: TableEntry,
+): void {
+  const queue: number[] = [ci * 10 + d];
+  let qi = 0;
+  while (qi < queue.length) {
+    const pack = queue[qi++];
+    const cell  = (pack / 10) | 0;
+    const digit = pack % 10;
+    if (wVals[cell] !== 0) continue;
+    _netApplyPlacement(cell, digit, wVals, wCands, entry, queue);
+    // Hidden singles scan after each placement (bounded by grid size).
+    _netScanHiddenSingles(wVals, wCands, entry, queue);
+  }
+}
+
+function _netPropagateOff(
+  ci: number, d: number,
+  wVals: Uint8Array, wCands: Uint16Array,
+  entry: TableEntry,
+): void {
+  if ((wCands[ci] >> d & 1) === 0) return;
+  wCands[ci] &= ~(1 << d);
+  entry.addDel(ci, d);
+
+  const queue: number[] = [];
+
+  // Naked single in ci after removing d?
+  if (_netCountBits(wCands[ci]) === 1) {
+    queue.push(ci * 10 + _netLowestBit(wCands[ci]));
+  }
+
+  // Hidden single in the houses that contain ci.
+  for (const hIdx of CELL_HOUSES[ci]) {
+    for (let hd = 1; hd <= 9; hd++) {
+      let cnt = 0; let pos = -1;
+      for (const c of (HOUSE_CELLS[hIdx] as number[])) {
+        if (wVals[c] === 0 && (wCands[c] >> hd & 1) !== 0) { cnt++; pos = c; }
+      }
+      if (cnt === 1 && pos !== -1 && wVals[pos] === 0) queue.push(pos * 10 + hd);
+    }
+  }
+
+  let qi = 0;
+  while (qi < queue.length) {
+    const pack = queue[qi++];
+    const cell  = (pack / 10) | 0;
+    const digit = pack % 10;
+    if (wVals[cell] !== 0) continue;
+    _netApplyPlacement(cell, digit, wVals, wCands, entry, queue);
+    _netScanHiddenSingles(wVals, wCands, entry, queue);
+  }
 }
 

@@ -38,8 +38,8 @@ export class SingleDigitPatternSolver extends AbstractSolver {
     switch (type) {
       case SolutionType.SKYSCRAPER:       return this._findSkyscraper();
       case SolutionType.TWO_STRING_KITE:  return this._findTwoStringKite();
-      case SolutionType.TURBOT_FISH:      return null; // testing
-      case SolutionType.EMPTY_RECTANGLE:  return null; // testing
+      case SolutionType.TURBOT_FISH:      return this._findTurbotFish();
+      case SolutionType.EMPTY_RECTANGLE:  return this._findEmptyRectangle();
       default: return null;
     }
   }
@@ -198,12 +198,15 @@ export class SingleDigitPatternSolver extends AbstractSolver {
 
   private _findEmptyRectangle(): SolutionStep | null {
     const { values, candidates } = this.sudoku;
-    const BUDDIES = Sudoku2.BUDDIES;
 
     for (let d = 1; d <= 9; d++) {
       const only2 = this._only2(d);
 
-      // For each box, find its d-cells and check if they lie on one row or one col
+      // For each box, find the d-candidate cells and check for an L-shape ER.
+      // An ER is valid when ALL d-cells in the box lie within the union of one
+      // specific row (erRow) and one specific column (erCol) of that box, with
+      // at least one cell strictly in erRow-only and at least one cell in
+      // erCol-only (i.e., a true L-shape, not a degenerate line).
       for (let box = 0; box < 9; box++) {
         const boxHouseIdx = 18 + box;
         const boxCells = Sudoku2.HOUSES[boxHouseIdx].filter(
@@ -211,71 +214,70 @@ export class SingleDigitPatternSolver extends AbstractSolver {
         );
         if (boxCells.length < 2) continue;
 
-        const rows = new Set(boxCells.map(Sudoku2.row));
-        const cols = new Set(boxCells.map(Sudoku2.col));
-        const singleRow = rows.size === 1 ? [...rows][0] : -1;
-        const singleCol = cols.size === 1 ? [...cols][0] : -1;
-        if (singleRow === -1 && singleCol === -1) continue;
+        const boxRowSet = new Set(boxCells.map(Sudoku2.row));
+        const boxColSet = new Set(boxCells.map(Sudoku2.col));
 
-        // Try using this box as the ER component
-        // For each strong link outside the box:
-        if (singleRow !== -1) {
-          // ER row = singleRow. Find conjugate pair in a column (outside box)
-          for (let colH = 9; colH < 18; colH++) {
-            const cp = only2[colH]; if (!cp) continue;
-            const col = colH - 9;
-            // The column must not intersect the ER box
-            if (Math.floor(col / 3) === Math.floor(([...cols][0]) / 3)) continue;
-            const [cA, cB] = cp;
-            // One cell of the conjugate pair must be in the ER row
-            let inRow: number, outRow: number;
-            if (Sudoku2.row(cA) === singleRow) { inRow = cA; outRow = cB; }
-            else if (Sudoku2.row(cB) === singleRow) { inRow = cB; outRow = cA; }
-            else continue;
+        // Try every (erRow, erCol) pair drawn from the rows/cols present in this box.
+        for (const erRow of boxRowSet) {
+          for (const erCol of boxColSet) {
+            // All d-cells must lie in (erRow ∪ erCol).
+            if (!boxCells.every(c => Sudoku2.row(c) === erRow || Sudoku2.col(c) === erCol)) continue;
+            // The ER must have cells strictly in erRow (not just on erCol crossing).
+            if (!boxCells.some(c => Sudoku2.row(c) !== erRow)) continue;
+            // The ER must have cells strictly in erCol (not just on erRow crossing).
+            if (!boxCells.some(c => Sudoku2.col(c) !== erCol)) continue;
+            // HoDoKu: erCol must have >= 2 candidates (crossing point + at least one erCol-only cell).
+            // Similarly erRow must have >= 2 candidates.
+            if (boxCells.filter(c => Sudoku2.col(c) === erCol).length < 2) continue;
+            if (boxCells.filter(c => Sudoku2.row(c) === erRow).length < 2) continue;
 
-            // inRow is in our ER row; outRow is the far end
-            // Victim = cell at (row of outRow, intersection col with ER)
-            // But ER has all cells on singleRow, and we need a column from the ER box
-            // that is connected. The "hinge" column is ANY col in the box that has a D cell.
-            for (const hingeCell of boxCells) {
-              const hingeCol = Sudoku2.col(hingeCell);
-              const victim = Sudoku2.index(Sudoku2.row(outRow), hingeCol);
-              if (victim === outRow || victim === hingeCell || victim === inRow) continue;
+            // Valid L-shape ER. Now look for eliminations via external conjugate pairs.
+
+            // Case A: conjugate pair in a column outside the box column band,
+            //         one cell in erRow → victim at (row of far cell, erCol).
+            for (let colH = 9; colH < 18; colH++) {
+              const cp = only2[colH]; if (!cp) continue;
+              const col = colH - 9;
+              // Pair's column must be outside the ER box's column band.
+              if (Math.floor(col / 3) === Math.floor(erCol / 3)) continue;
+              const [cA, cB] = cp;
+              let inRow: number, outRow: number;
+              if (Sudoku2.row(cA) === erRow)      { inRow = cA; outRow = cB; }
+              else if (Sudoku2.row(cB) === erRow) { inRow = cB; outRow = cA; }
+              else continue;
+
+              // Victim: cell at (row of outRow, erCol)
+              const victim = Sudoku2.index(Sudoku2.row(outRow), erCol);
+              if (victim === outRow || victim === inRow) continue;
+              if (Sudoku2.box(victim) === box) continue; // victim must not be in the ER box
               if (values[victim] !== 0) continue;
               if (!(candidates[victim] & (1 << d))) continue;
-              // victim must see outRow (they share the column of outRow already)
-              // and must see hingeCell (they share outRow's row)
-              if (!BUDDIES[victim].includes(outRow)) continue;
-              if (!BUDDIES[victim].includes(hingeCell)) continue;
               return {
                 type: SolutionType.EMPTY_RECTANGLE,
                 placements: [],
                 candidatesToDelete: [{ index: victim, value: d as Digit }],
               };
             }
-          }
-        }
 
-        if (singleCol !== -1) {
-          // ER col = singleCol. Find conjugate pair in a row (outside box)
-          for (let rowH = 0; rowH < 9; rowH++) {
-            const cp = only2[rowH]; if (!cp) continue;
-            const row = rowH;
-            if (Math.floor(row / 3) === Math.floor(([...rows][0]) / 3)) continue;
-            const [cA, cB] = cp;
-            let inCol: number, outCol: number;
-            if (Sudoku2.col(cA) === singleCol) { inCol = cA; outCol = cB; }
-            else if (Sudoku2.col(cB) === singleCol) { inCol = cB; outCol = cA; }
-            else continue;
+            // Case B: conjugate pair in a row outside the box row band,
+            //         one cell in erCol → victim at (erRow, col of far cell).
+            for (let rowH = 0; rowH < 9; rowH++) {
+              const cp = only2[rowH]; if (!cp) continue;
+              const row = rowH;
+              // Pair's row must be outside the ER box's row band.
+              if (Math.floor(row / 3) === Math.floor(erRow / 3)) continue;
+              const [cA, cB] = cp;
+              let inCol: number, outCol: number;
+              if (Sudoku2.col(cA) === erCol)      { inCol = cA; outCol = cB; }
+              else if (Sudoku2.col(cB) === erCol) { inCol = cB; outCol = cA; }
+              else continue;
 
-            for (const hingeCell of boxCells) {
-              const hingeRow = Sudoku2.row(hingeCell);
-              const victim = Sudoku2.index(hingeRow, Sudoku2.col(outCol));
-              if (victim === outCol || victim === hingeCell || victim === inCol) continue;
+              // Victim: cell at (erRow, col of outCol)
+              const victim = Sudoku2.index(erRow, Sudoku2.col(outCol));
+              if (victim === outCol || victim === inCol) continue;
+              if (Sudoku2.box(victim) === box) continue; // victim must not be in the ER box
               if (values[victim] !== 0) continue;
               if (!(candidates[victim] & (1 << d))) continue;
-              if (!BUDDIES[victim].includes(outCol)) continue;
-              if (!BUDDIES[victim].includes(hingeCell)) continue;
               return {
                 type: SolutionType.EMPTY_RECTANGLE,
                 placements: [],
