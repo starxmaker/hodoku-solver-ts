@@ -308,3 +308,55 @@ describe("BruteForceSolver", () => {
     expect(sudoku.toValueString()).toMatch(/^[1-9]{81}$/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// TemplateSolver unit tests
+// ---------------------------------------------------------------------------
+
+describe("TemplateSolver", () => {
+  test("getStep returns null for non-template types", () => {
+    const solver = makeSolver(P.REMOTE_PAIR_PUZZLE);
+    expect(solver.getStep(SolutionType.X_WING)).toBeNull();
+    expect(solver.getStep(SolutionType.INCOMPLETE)).toBeNull();
+  });
+
+  test("getStep(TEMPLATE_SET) returns null for an already-solved puzzle", () => {
+    const solver = makeSolver(P.EASY_PUZZLE);
+    solver.solve();
+    expect(solver.getSudoku().isSolved).toBe(true);
+    expect(solver.getStep(SolutionType.TEMPLATE_SET)).toBeNull();
+  });
+
+  test("getStep(TEMPLATE_DEL) returns null for an already-solved puzzle", () => {
+    const solver = makeSolver(P.EASY_PUZZLE);
+    solver.solve();
+    expect(solver.getSudoku().isSolved).toBe(true);
+    expect(solver.getStep(SolutionType.TEMPLATE_DEL)).toBeNull();
+  });
+
+  test("TEMPLATE_SET step placements are valid candidates in their cells", () => {
+    // Run a hard puzzle through simple logic, then check that any TEMPLATE_SET
+    // step returned names a digit that is actually a candidate in that cell.
+    const solver = makeSolver(P.REMOTE_PAIR_PUZZLE);
+    advanceSimples(solver);
+    const step = solver.getStep(SolutionType.TEMPLATE_SET);
+    if (step === null) return; // technique may not fire on this puzzle
+    const sudoku = solver.getSudoku();
+    for (const { index, value } of step.placements) {
+      expect(sudoku.values[index]).toBe(0);           // cell must be unsolved
+      expect(sudoku.candidates[index] & (1 << value)).toBeTruthy(); // value must be candidate
+    }
+  });
+
+  test("TEMPLATE_DEL step deletions are valid candidates in their cells", () => {
+    const solver = makeSolver(P.REMOTE_PAIR_PUZZLE);
+    advanceSimples(solver);
+    const step = solver.getStep(SolutionType.TEMPLATE_DEL);
+    if (step === null) return;
+    const sudoku = solver.getSudoku();
+    for (const { index, value } of step.candidatesToDelete) {
+      expect(sudoku.values[index]).toBe(0);
+      expect(sudoku.candidates[index] & (1 << value)).toBeTruthy();
+    }
+  });
+});

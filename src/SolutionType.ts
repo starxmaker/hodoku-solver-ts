@@ -101,7 +101,12 @@ export const SolutionType = {
   FORCING_CHAIN: "FORCING_CHAIN",
   FORCING_NET: "FORCING_NET",
 
+  // Templates
+  TEMPLATE_SET: "TEMPLATE_SET",
+  TEMPLATE_DEL: "TEMPLATE_DEL",
+
   // Last resort
+  BRUTE_FORCE: "BRUTE_FORCE",
   GIVE_UP: "GIVE_UP",
   INCOMPLETE: "INCOMPLETE",
 } as const;

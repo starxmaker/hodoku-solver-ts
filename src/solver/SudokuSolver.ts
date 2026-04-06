@@ -34,6 +34,10 @@ import { UniquenessSolver } from './UniquenessSolver';
 import { AlsSolver } from './AlsSolver';
 import { MiscellaneousSolver } from './MiscellaneousSolver';
 import { TablingSolver } from './TablingSolver';
+import { TemplateSolver } from './TemplateSolver';
+import { BruteForceSolver } from './BruteForceSolver';
+import { GiveUpSolver } from './GiveUpSolver';
+import { IncompleteSolver } from './IncompleteSolver';
 
 // Technique order from Java Options.DEFAULT_SOLVER_STEPS (sorted by step number)
 const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
@@ -85,6 +89,10 @@ const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
   SolutionType.DEATH_BLOSSOM,
   SolutionType.FORCING_CHAIN,
   SolutionType.FORCING_NET,
+  SolutionType.TEMPLATE_SET,
+  SolutionType.TEMPLATE_DEL,
+  SolutionType.BRUTE_FORCE,
+  SolutionType.GIVE_UP,
 ];
 
 // ---------------------------------------------------------------------------
@@ -143,6 +151,9 @@ const STEP_BASE_SCORES: Partial<Record<string, number>> = {
   [SolutionType.DEATH_BLOSSOM]:           360,
   [SolutionType.FORCING_CHAIN]:           500,
   [SolutionType.FORCING_NET]:             700,
+  [SolutionType.TEMPLATE_SET]:            320,
+  [SolutionType.TEMPLATE_DEL]:            320,
+  [SolutionType.BRUTE_FORCE]:             800,
 };
 
 /** Ordered difficulty levels with their cumulative score ceilings. */
@@ -169,6 +180,10 @@ export class SudokuSolver extends AbstractSolver {
   private readonly _als: AlsSolver;
   private readonly _misc: MiscellaneousSolver;
   private readonly _tabling: TablingSolver;
+  private readonly _template: TemplateSolver;
+  private readonly _bruteForce: BruteForceSolver;
+  private readonly _giveUp: GiveUpSolver;
+  private readonly _incomplete: IncompleteSolver;
   private readonly _allSolvers: AbstractSolver[];
 
   constructor() {
@@ -183,10 +198,15 @@ export class SudokuSolver extends AbstractSolver {
     this._als        = new AlsSolver();
     this._misc       = new MiscellaneousSolver();
     this._tabling    = new TablingSolver();
+    this._template   = new TemplateSolver();
+    this._bruteForce = new BruteForceSolver();
+    this._giveUp     = new GiveUpSolver();
+    this._incomplete = new IncompleteSolver();
     this._allSolvers = [
       this._simple, this._fish, this._sdp, this._wing,
       this._coloring, this._chain, this._uniqueness, this._als,
-      this._misc, this._tabling,
+      this._misc, this._tabling, this._template, this._bruteForce,
+      this._giveUp, this._incomplete,
     ];
   }
 
@@ -351,6 +371,19 @@ export class SudokuSolver extends AbstractSolver {
       case SolutionType.FORCING_CHAIN:
       case SolutionType.FORCING_NET:
         return this._tabling;
+
+      case SolutionType.TEMPLATE_SET:
+      case SolutionType.TEMPLATE_DEL:
+        return this._template;
+
+      case SolutionType.BRUTE_FORCE:
+        return this._bruteForce;
+
+      case SolutionType.GIVE_UP:
+        return this._giveUp;
+
+      case SolutionType.INCOMPLETE:
+        return this._incomplete;
 
       default:
         return null;
