@@ -110,6 +110,10 @@ export class Sudoku2 {
   /** How many cells are still unsolved. */
   private _unsolvedCount = LENGTH;
 
+  /** Pre-computed solution (populated lazily by getSolution / setSolution). */
+  private _solution: number[] = new Array(LENGTH).fill(0);
+  private _solutionSet = false;
+
   // ── Static helpers ────────────────────────────────────────────────────────
 
   static readonly HOUSES = HOUSES;
@@ -139,6 +143,7 @@ export class Sudoku2 {
     this.values.fill(0);
     this.candidates.fill(0b1111111110);
     this._unsolvedCount = LENGTH;
+    this._solutionSet = false;
 
     for (let i = 0; i < LENGTH; i++) {
       const ch = puzzle[i];
@@ -190,6 +195,122 @@ export class Sudoku2 {
 
   get isSolved(): boolean { return this._unsolvedCount === 0; }
   get unsolvedCount(): number { return this._unsolvedCount; }
+
+  // ── Solution (backtracking) ───────────────────────────────────────────────
+
+  isSolutionSet(): boolean { return this._solutionSet; }
+
+  setSolution(sol: number[]): void {
+    for (let i = 0; i < LENGTH; i++) this._solution[i] = sol[i];
+    this._solutionSet = true;
+  }
+
+  /**
+   * Returns the solution digit for cell {@code index}, computing it via
+   * backtracking on first call if it has not been set externally.
+   * Returns 0 if the puzzle has no unique solution.
+   */
+  getSolution(index: number): number {
+    if (!this._solutionSet) {
+      // Use typed arrays for fast copy/comparison in the backtracker.
+      const work = new Uint8Array(LENGTH);
+      for (let i = 0; i < LENGTH; i++) work[i] = this.values[i];
+
+      const masks = new Uint16Array(LENGTH);
+      let valid = true;
+      for (let i = 0; i < LENGTH; i++) {
+        if (work[i] !== 0) {
+          masks[i] = 0;
+        } else {
+          let used = 0;
+          for (const b of BUDDIES[i]) {
+            if (work[b] !== 0) used |= 1 << work[b];
+          }
+          masks[i] = 0b1111111110 & ~used;
+          if (masks[i] === 0) { valid = false; break; }
+        }
+      }
+
+      if (valid && this._solve(work, masks)) {
+        this._solutionSet = true;
+        for (let i = 0; i < LENGTH; i++) this._solution[i] = work[i];
+      } else {
+        return 0;
+      }
+    }
+    return this._solution[index];
+  }
+
+  /**
+   * Backtracking solver — MRV + naked-single constraint propagation.
+   *
+   * At each step: pick the unfilled cell with the fewest candidates (MRV),
+   * then for each candidate digit call {@link _place} which assigns the digit
+   * AND recursively forces any resulting naked singles.  This collapses large
+   * parts of the search tree without extra backtracking, making even
+   * pathologically hard puzzles (Arto Inkala) fast in JS.
+   */
+  private _solve(v: Uint8Array, masks: Uint16Array): boolean {
+    // MRV: choose the unfilled cell with the smallest candidate count.
+    let minCnt = 10, idx = -1;
+    for (let i = 0; i < LENGTH; i++) {
+      if (v[i] !== 0) continue;
+      const cnt = this._popcount(masks[i]);
+      if (cnt === 0) return false; // contradiction — already a dead end
+      if (cnt < minCnt) {
+        minCnt = cnt;
+        idx = i;
+        if (cnt === 1) break; // can't do better
+      }
+    }
+    if (idx === -1) return true; // all cells filled
+
+    // Snapshot current state so we can undo the attempted assignment.
+    const sv = new Uint8Array(v);    // 81 bytes
+    const sm = new Uint16Array(masks); // 162 bytes
+
+    const mask = masks[idx];
+    for (let d = 1; d <= 9; d++) {
+      if (!(mask & (1 << d))) continue;
+
+      if (this._place(v, masks, idx, d) && this._solve(v, masks)) return true;
+
+      // Undo: restore both arrays.
+      v.set(sv);
+      masks.set(sm);
+    }
+    return false;
+  }
+
+  /**
+   * Place digit {@code d} in cell {@code idx} and propagate via naked singles:
+   * when a peer is left with exactly one candidate, assign that candidate too
+   * (recursively).  Returns {@code false} immediately on any contradiction.
+   */
+  private _place(v: Uint8Array, masks: Uint16Array, idx: number, d: number): boolean {
+    v[idx] = d;
+    masks[idx] = 0;
+    for (const b of BUDDIES[idx]) {
+      if (v[b] !== 0) continue;
+      const nm = masks[b] & ~(1 << d);
+      if (nm === 0) return false; // peer has no candidates
+      masks[b] = nm;
+      if (this._popcount(nm) === 1) {
+        // Naked single: propagate recursively.
+        const bd = 31 - Math.clz32(nm);
+        if (!this._place(v, masks, b, bd)) return false;
+      }
+    }
+    return true;
+  }
+
+  /** Standard 32-bit popcount. */
+  private _popcount(n: number): number {
+    n = n - ((n >> 1) & 0x55555555);
+    n = (n & 0x33333333) + ((n >> 2) & 0x33333333);
+    n = (n + (n >> 4)) & 0x0f0f0f0f;
+    return Math.imul(n, 0x01010101) >>> 24;
+  }
 
   // ── Serialisation ─────────────────────────────────────────────────────────
 

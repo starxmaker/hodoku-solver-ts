@@ -260,3 +260,51 @@ describe("IncompleteSolver", () => {
     expect(r.steps.some(s => s.type === SolutionType.INCOMPLETE)).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// BruteForceSolver unit tests
+// ---------------------------------------------------------------------------
+
+describe("BruteForceSolver", () => {
+  test("getStep(BRUTE_FORCE) returns null for an already-solved puzzle", () => {
+    // Solve the easy puzzle fully, then ask for brute force
+    const solver = makeSolver(P.EASY_PUZZLE);
+    solver.solve();
+    expect(solver.getSudoku().isSolved).toBe(true);
+    const step = solver.getStep(SolutionType.BRUTE_FORCE);
+    expect(step).toBeNull();
+  });
+
+  test("getStep(BRUTE_FORCE) returns a valid placement for an unsolved puzzle", () => {
+    // Call directly on initial puzzle state — no need to run solve() first.
+    // BRUTE_FORCE_PUZZLE has unsolved cells, so this exercises the backtracker.
+    const solver = makeSolver(P.BRUTE_FORCE_PUZZLE);
+    const step = solver.getStep(SolutionType.BRUTE_FORCE);
+    expect(step).not.toBeNull();
+    expect(step!.type).toBe(SolutionType.BRUTE_FORCE);
+    expect(step!.placements).toHaveLength(1);
+    const { index, value } = step!.placements[0];
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(index).toBeLessThan(81);
+    expect(value).toBeGreaterThanOrEqual(1);
+    expect(value).toBeLessThanOrEqual(9);
+    // The placed value must match the backtracker's solution.
+    expect(solver.getSudoku().getSolution(index)).toBe(value);
+  });
+
+  test("applying BRUTE_FORCE steps alone completes the puzzle correctly", () => {
+    // Call getStep(BRUTE_FORCE) directly in a loop — bypasses expensive logical
+    // techniques, tests just the backtracker and middle-cell placement mechanics.
+    const sudoku = new Sudoku2();
+    sudoku.setSudoku(P.BRUTE_FORCE_PUZZLE);
+    const solver = new SudokuSolver();
+    solver.setSudoku(sudoku);
+    for (let i = 0; i < 81 && !sudoku.isSolved; i++) {
+      const step = solver.getStep(SolutionType.BRUTE_FORCE);
+      if (!step) break;
+      solver.doStep(step);
+    }
+    expect(sudoku.isSolved).toBe(true);
+    expect(sudoku.toValueString()).toMatch(/^[1-9]{81}$/);
+  });
+});
