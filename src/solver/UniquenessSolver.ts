@@ -119,6 +119,25 @@ export class UniquenessSolver extends AbstractSolver {
     const BUDDIES = Sudoku2.BUDDIES;
     const HOUSES  = Sudoku2.HOUSES;
 
+    // allowMissing: allowed[d-1][i]=1 iff values[i]===0 and no buddy has value d.
+    // Mirrors Java's getCandidatesAllowed() with allowUniquenessMissingCandidates=true.
+    const allowed: Uint8Array[] = [];
+    for (let d = 1; d <= 9; d++) {
+      const arr = new Uint8Array(81);
+      for (let i = 0; i < 81; i++) {
+        if (this.sudoku.values[i] !== 0) continue;
+        let blocked = false;
+        for (const b of BUDDIES[i]) {
+          if (this.sudoku.values[b] === d) { blocked = true; break; }
+        }
+        if (!blocked) arr[i] = 1;
+      }
+      allowed.push(arr);
+    }
+
+    // Rectangle deduplication: skip 4-corner rect already examined this pass.
+    const seenRects = new Set<number>();
+
     // Java-compatible iteration: bivalue cells as anchor (i11), ordered by index.
     for (let i11 = 0; i11 < 81; i11++) {
       if (this.sudoku.values[i11] !== 0) continue;
@@ -142,7 +161,7 @@ export class UniquenessSolver extends AbstractSolver {
       for (const i12 of HOUSES[18 + box11]) {
         if (i12 === i11) continue;
         if (this.sudoku.values[i12] !== 0) continue;
-        if (!this.sudoku.isCandidate(i12, da) || !this.sudoku.isCandidate(i12, db)) continue;
+        if (!allowed[da - 1][i12] || !allowed[db - 1][i12]) continue;
 
         const r12 = Sudoku2.row(i12);
         const c12 = Sudoku2.col(i12);
@@ -159,8 +178,13 @@ export class UniquenessSolver extends AbstractSolver {
             const i22 = r2 * 9 + c2;
             if (Sudoku2.box(i21) === box11) continue; // must be a different box
             if (this.sudoku.values[i21] !== 0 || this.sudoku.values[i22] !== 0) continue;
-            if (!this.sudoku.isCandidate(i21, da) || !this.sudoku.isCandidate(i21, db)) continue;
-            if (!this.sudoku.isCandidate(i22, da) || !this.sudoku.isCandidate(i22, db)) continue;
+            if (!allowed[da - 1][i21] || !allowed[db - 1][i21]) continue;
+            if (!allowed[da - 1][i22] || !allowed[db - 1][i22]) continue;
+
+            const s4 = [i11, i12, i21, i22].slice().sort((a, b) => a - b);
+            const rectKey = s4[0] << 21 | s4[1] << 14 | s4[2] << 7 | s4[3];
+            if (seenRects.has(rectKey)) continue;
+            seenRects.add(rectKey);
 
             const corners = [i11, i12, i21, i22] as const;
             const twoOnly: number[] = [], withExtra: number[] = [];
@@ -183,8 +207,13 @@ export class UniquenessSolver extends AbstractSolver {
             const i22 = r2 * 9 + c2;
             if (Sudoku2.box(i21) === box11) continue; // must be a different box
             if (this.sudoku.values[i21] !== 0 || this.sudoku.values[i22] !== 0) continue;
-            if (!this.sudoku.isCandidate(i21, da) || !this.sudoku.isCandidate(i21, db)) continue;
-            if (!this.sudoku.isCandidate(i22, da) || !this.sudoku.isCandidate(i22, db)) continue;
+            if (!allowed[da - 1][i21] || !allowed[db - 1][i21]) continue;
+            if (!allowed[da - 1][i22] || !allowed[db - 1][i22]) continue;
+
+            const s4 = [i11, i12, i21, i22].slice().sort((a, b) => a - b);
+            const rectKey = s4[0] << 21 | s4[1] << 14 | s4[2] << 7 | s4[3];
+            if (seenRects.has(rectKey)) continue;
+            seenRects.add(rectKey);
 
             const corners = [i11, i12, i21, i22] as const;
             const twoOnly: number[] = [], withExtra: number[] = [];
