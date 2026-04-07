@@ -161,10 +161,16 @@ The following Java `Options` fields have no TS equivalent — TS hardcodes the J
 | `ALLOW_DUALS_AND_SIAMESE` | `false` | TS never generates dual/siamese patterns ✓ |
 | `MAX_FISH_SIZE` | `4` | TS cap = 4 ✓ |
 | `MAX_KRAKEN_FISH_SIZE` | `4` | TS cap = 4 ✓ |
-| `MAX_FINS` | `5` | Not enforced in TS fish solver |
-| `MAX_ENDO_FINS` | `2` | Not enforced in TS fish solver |
+| `MAX_FINS` | `5` | TS uses `size + 4` pre-filter (≤ 4 fin positions); Java limits actual fin cells to 5 — TS may find valid fish with 5+ fin cells that Java prunes |
+| `MAX_ENDO_FINS` | `2` | Not tracked in TS at all — see endo-fin note below |
 
-**Potential gap:** Java's `MAX_FINS = 5` and `MAX_ENDO_FINS = 2` limits are not checked in the TS `FishSolver`. Java uses them to prune the search. TS may generate fish with more fins (unlikely on real puzzles but theoretically possible).
+**Fin count difference:** TS pre-filters with `allCrossing.size > size + 4` (at most 4 fin crossing positions). Java checks `finCells.length <= MAX_FINS = 5`. For finned Swordfish/Jellyfish, TS may find correct finned fish with 5+ total fin cells that Java skips for performance. TS is a superset here (more complete, not incorrect).
+
+**Endo-fin correctness gap (Mutant finned fish — potential unsoundness):** Java tracks *endo-fins* — base cells that also appear in a box cover unit. When base set construction accumulates candidate intersections across units, any repeated cells become endo-fins. For the elimination check, Java sets `fins = regular_fins ∪ endo_fins`; elimination cells must see ALL of them.
+
+TS has no endo-fin concept. `_searchGeneralFish` treats all base cells NOT in `coverCells` as regular fins. Cells that are endo-fins in Java's sense (in both base AND a cover box) remain in `coverCells` in TS, so TS does NOT require elimination cells to see them. For Mutant finned fish where the base mixes rows/cols and boxes, TS can produce incorrect eliminations — skipping the endo-fin visibility constraint.
+
+Practical impact: Mutant fish are disabled in Java by default (H3); TS's size cap limits Mutant search to sizes ≤ 3; boards rarely trigger this exact configuration. Low risk but provably unsound.
 
 ---
 
@@ -182,7 +188,7 @@ The following areas were audited and found equivalent to Java:
 | `SingleDigitPatternSolver` dispatch (SKYSCRAPER, TWO_STRING_KITE, DUAL_…, TURBOT_FISH, EMPTY_RECTANGLE, DUAL_…) | ✅ |
 | Turbot Fish chain length = 3 links (matches Java hardcoded `chainMaxLength = 3`) | ✅ |
 | `MiscellaneousSolver` dispatch (SUE_DE_COQ) | ✅ |
-| `TemplateSolver` dispatch (TEMPLATE_SET, TEMPLATE_DEL) | ✅ |
+| `TemplateSolver` dispatch (TEMPLATE_SET, TEMPLATE_DEL) | ✅ dispatch only — algorithm is incomplete, see **H6** |
 | `AlsSolver` dispatch (ALS_XZ, ALS_XY_WING, ALS_XY_CHAIN depth 6, DEATH_BLOSSOM) | ✅ |
 | `UniquenessSolver` dispatch (UNIQUENESS_1–6, HIDDEN_RECTANGLE, AVOIDABLE_RECTANGLE_1/2, BUG_PLUS_1) | ✅ |
 | `FishSolver` dispatch — basic/finned/sashimi/franken/mutant sizes 2–7 + KRAKEN_FISH_TYPE_1/2 | ✅ |
@@ -270,6 +276,62 @@ Java `StepConfig` has an `enabled` flag ("used in solution?"). In `Options.DEFAU
 **Mitigation options:**
 1. Accept the divergence (TS is actually more complete than Java's *default* mode).
 2. Add a `defaultEnabled` filter to `TECHNIQUE_ORDER` matching Java's defaults, controlled by a config option.
+
+---
+
+### H4 — TablingSolver: ALS node expansion incorrectly active for GROUPED_NICE_LOOP, FORCING_CHAIN, and FORCING_NET
+
+Java's default `ALLOW_ALS_IN_TABLING_CHAINS = false` means ALS nodes must **not** be added to tabling tables during the standard single-step `getStep()` mode. Java's `getStep()` dispatch:
+
+| Technique | `withAlsNodes` value |
+|---|---|
+| `NICE_LOOP` | `false` (hard-coded) ✓ TS matches |
+| `GROUPED_NICE_LOOP` | `allowAlsInTablingChains` = `false` ✗ TS unconditional |
+| `FORCING_CHAIN` | `allowAlsInTablingChains` = `false` ✗ TS unconditional |
+| `FORCING_NET` | `allowAlsInTablingChains` = `false` ✗ TS unconditional |
+
+TS `_getGroupedNiceLoop()`, `_getForcingChain()`, and `_getForcingNet()` all call `_expandTablesWithAls(this._onTable, this._offTable, collectAlses(this.sudoku))` unconditionally. This means TS may find ALS-assisted grouped/forcing chains where Java would not.
+
+**Fix:** Guard the `_expandTablesWithAls(...)` call in those three methods behind a `ALLOW_ALS_IN_TABLING_CHAINS` option (default `false`), matching Java's default behavior.
+
+File: `src/solver/TablingSolver.ts`
+
+---
+
+### H5 — TablingSolver: table propagation uses unbounded BFS vs Java's 4-pass limit
+
+Java's `getTableEntry()` propagates forced consequences by running `findAllNakedSingles()` + `findAllHiddenSingles()` exactly `ANZ_TABLE_LOOK_AHEAD = 4` times. TS `_netPropagateOn()` / `_netPropagateOff()` use an unbounded BFS queue that continues until no new singles remain.
+
+**Impact:** TS propagates more consequences per table entry — it discovers more forced implications and potentially finds FORCING_CHAIN / FORCING_NET steps that Java would miss on the same puzzle. TS is a proper superset of Java for this path (more complete, not incorrect).
+
+**Mitigation options:**
+1. Accept the divergence (TS is more complete).
+2. Add a `MAX_TABLE_LOOK_AHEAD = 4` iteration cap to `_netPropagateOn/Off` to match Java exactly.
+
+---
+
+### H6 — TemplateSolver: missing cross-digit template refinement
+
+Java's template computation in `SudokuStepFinder.initTemplates()` has an iterative refinement step that runs only in normal `getStep()` mode (not findAll):
+
+1. For each valid template of digit `j`, check whether it overlaps with `setValueTemplates[k]` (= the forced-placement AND-mask) for any other digit `k ≠ j`.
+2. If so, remove that template from `j`'s pool (a template that places `j` in a cell forced for `k` is contradictory).
+3. Repeat until no more templates are removed.
+
+This refines both `setValueTemplates` (AND of remaining valid templates → cells that MUST contain the digit) and `delCandTemplates` (OR → cells that CAN contain the digit; negated to get elimination candidates).
+
+TS `TemplateSolver` does only the basic single-pass filter (reject templates that miss placed cells or touch forbidden cells). It has no cross-digit refinement loop. As a result:
+
+- **TEMPLATE_SET**: TS finds fewer forced placements (more templates survive → tighter AND).
+- **TEMPLATE_DEL**: TS finds fewer eliminations (more templates survive → wider OR → narrower `~OR`).
+
+TS is a strict subset of Java for template steps (less complete, not incorrect).
+
+Practical impact: TEMPLATE_SET and TEMPLATE_DEL are disabled in Java by default (H3). The gap only matters on boards where template solving would be needed.
+
+**Fix:** After the initial filter loop, add an iterative removal pass: for template `t` of digit `j`, compute `andMask[k]` for all `k ≠ j` and remove `t` if `t ∩ andMask[k] ≠ ∅`. Recompute AND/OR masks after each round and repeat until stable.
+
+File: `src/solver/TemplateSolver.ts`
 
 ---
 
