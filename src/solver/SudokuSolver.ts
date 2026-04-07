@@ -308,6 +308,8 @@ export class SudokuSolver extends AbstractSolver {
     this._bruteForce = new BruteForceSolver();
     this._giveUp     = new GiveUpSolver();
     this._incomplete = new IncompleteSolver();
+    // Wire TablingSolver into FishSolver for Kraken Fish analysis.
+    this._fish.setTablingSolver(this._tabling);
     this._allSolvers = [
       this._simple, this._fish, this._sdp, this._wing,
       this._coloring, this._chain, this._uniqueness, this._als,

@@ -24,6 +24,8 @@ import { Sudoku2 } from "../Sudoku2";
 import { SolutionType } from "../SolutionType";
 import type { Candidate, Digit } from "../types";
 import { AbstractSolver } from "./AbstractSolver";
+import type { Als } from "./AlsSolver";
+import { collectAlses } from "./AlsSolver";
 
 // ---------------------------------------------------------------------------
 // TablingSolver â€” mirrors solver/TablingSolver.java (chain-only subset)
@@ -165,6 +167,28 @@ export class TablingSolver extends AbstractSolver {
   private readonly _onTable: TableEntry[] = Array.from({ length: TABLE_SIZE }, () => new TableEntry());
   private readonly _offTable: TableEntry[] = Array.from({ length: TABLE_SIZE }, () => new TableEntry());
   private _groupImplicationFired = false;
+  private _alsImplicationFired = false;
+  private _krakenFilled = false;
+
+  override setSudoku(sudoku: Sudoku2): void {
+    super.setSudoku(sudoku);
+    this._krakenFilled = false;
+  }
+
+  /**
+   * For Kraken Fish: returns true if eliminating digit `d` from every cell in
+   * `cells` forces `target` to also lose `d` (via forcing-chain analysis).
+   * Tables are filled+expanded lazily and cached for the current puzzle state.
+   */
+  public krakenCheck(cells: number[], d: number, target: number): boolean {
+    if (!this._krakenFilled) {
+      this._fillTables();
+      this._expandTables(this._onTable, this._offTable);
+      this._krakenFilled = true;
+    }
+    // Kraken Type 1: for every fin cell ci, placing d in ci forces d off target.
+    return cells.every(ci => this._onTable[ci * 10 + d].offSets[d].has(target));
+  }
 
 
   // â”€â”€ Public interface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -220,8 +244,10 @@ export class TablingSolver extends AbstractSolver {
     this._groupImplicationFired = false;
     this._fillTables();
     this._expandTablesWithGroups(this._onTable, this._offTable, groups);
+    this._alsImplicationFired = false;
+    this._expandTablesWithAls(this._onTable, this._offTable, collectAlses(this.sudoku));
 
-    if (!this._groupImplicationFired) return null;
+    if (!this._groupImplicationFired && !this._alsImplicationFired) return null;
 
     const step = this._checkNiceLoops(this._onTable)
         ?? this._checkNiceLoops(this._offTable)
@@ -334,15 +360,123 @@ export class TablingSolver extends AbstractSolver {
     }
   }
 
+  // ──  _expandTablesWithAls() ────────────────────────────────────────────────
+  //
+  // BFS extension pass for ALS-node implications.
+  //
+  // ALS rule: if all cells of an ALS that contain entry-digit e are eliminated
+  // (offSets[e] ∋ every cell in als.cellsFor[e]), then for each exit digit z
+  // (z ≠ e) the ALS forces eliminations on every cell in als.buddiesFor[z].
+  //
+  // Called after _expandTablesWithGroups (for grouped nice loops) or after
+  // _expandTables (for forcing chains/nets).  The snapshot used for BFS is
+  // taken from the CURRENT state of the tables (already group-expanded).
+  // ---------------------------------------------------------------------------
+  private _expandTablesWithAls(
+    onTable: TableEntry[],
+    offTable: TableEntry[],
+    alses: Als[],
+  ): void {
+    if (alses.length === 0) return;
+
+    // Build per-cell+digit → ALS lookup  (which ALS have cell c as a cellsFor[e] member)
+    type AlsEntry = { als: Als; e: number };
+    const cellDigitToAlses = new Map<number, AlsEntry[]>();
+    for (const als of alses) {
+      for (let e = 1; e <= 9; e++) {
+        if (!(als.candMask & (1 << e))) continue;
+        for (const c of als.cellsFor[e]) {
+          const key = c * 10 + e;
+          if (!cellDigitToAlses.has(key)) cellDigitToAlses.set(key, []);
+          cellDigitToAlses.get(key)!.push({ als, e });
+        }
+      }
+    }
+
+    // Snapshot the current (already-expanded) tables.
+    type SnapEntry = { cell: number; d: number; isOn: boolean };
+    const onSnap:  SnapEntry[][] = Array.from({ length: TABLE_SIZE }, () => []);
+    const offSnap: SnapEntry[][] = Array.from({ length: TABLE_SIZE }, () => []);
+
+    for (let ti = 0; ti < TABLE_SIZE; ti++) {
+      const on  = onTable[ti];
+      const off = offTable[ti];
+      for (let d = 1; d <= 9; d++) {
+        for (const c of on.onSets[d])   onSnap[ti].push({ cell: c, d, isOn: true });
+        for (const c of on.offSets[d])  onSnap[ti].push({ cell: c, d, isOn: false });
+        for (const c of off.onSets[d])  offSnap[ti].push({ cell: c, d, isOn: true });
+        for (const c of off.offSets[d]) offSnap[ti].push({ cell: c, d, isOn: false });
+      }
+    }
+
+    const checkAlsOff = (
+      als: Als,
+      e: number,
+      dest: TableEntry,
+      queue: SnapEntry[],
+    ): void => {
+      if (!als.cellsFor[e].every(c => dest.offSets[e].has(c))) return;
+      for (let z = 1; z <= 9; z++) {
+        if (z === e || !(als.candMask & (1 << z))) continue;
+        for (const b of als.buddiesFor[z]) {
+          if (dest.addDel(b, z)) {
+            this._alsImplicationFired = true;
+            queue.push({ cell: b, d: z, isOn: false });
+          }
+        }
+      }
+    };
+
+    for (const [table, snap] of [[onTable, onSnap], [offTable, offSnap]] as const) {
+      for (let ti = 0; ti < TABLE_SIZE; ti++) {
+        const dest = table[ti];
+        if (!dest.populated) continue;
+
+        const premiseCi = (ti / 10) | 0;
+        const premiseD  = ti % 10;
+
+        const queue: SnapEntry[] = [...snap[ti]];
+        let qi = 0;
+        while (qi < queue.length) {
+          const { cell: c, d, isOn } = queue[qi++];
+          if (c === premiseCi && d === premiseD) continue;
+
+          const srcTi = c * 10 + d;
+          const srcSnap = isOn ? onSnap[srcTi] : offSnap[srcTi];
+
+          for (const { cell: c2, d: d2, isOn: isOn2 } of srcSnap) {
+            if (isOn2) {
+              if (dest.addSet(c2, d2)) queue.push({ cell: c2, d: d2, isOn: true });
+            } else {
+              if (dest.addDel(c2, d2)) {
+                queue.push({ cell: c2, d: d2, isOn: false });
+                // ALS-OFF check: c2 going OFF may complete an ALS entry.
+                const key = c2 * 10 + d2;
+                const entries = cellDigitToAlses.get(key);
+                if (entries) {
+                  for (const { als, e } of entries) {
+                    checkAlsOff(als, e, dest, queue);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   private _getForcingChain(): SolutionStep | null {
     this._fillTables();
     this._expandTables(this._onTable, this._offTable);
+    this._expandTablesWithAls(this._onTable, this._offTable, collectAlses(this.sudoku));
     return this._checkForcingChains();
   }
 
   private _getForcingNet(): SolutionStep | null {
     this._fillTablesForNet();
     this._expandTables(this._onTable, this._offTable);
+    this._expandTablesWithAls(this._onTable, this._offTable, collectAlses(this.sudoku));
     const step = this._checkForcingChains();
     if (!step) return null;
     if (step.type === SolutionType.FORCING_CHAIN_CONTRADICTION)
@@ -359,6 +493,7 @@ export class TablingSolver extends AbstractSolver {
   // ---------------------------------------------------------------------------
 
   private _fillTablesForNet(): void {
+    this._krakenFilled = false;
     for (let i = 0; i < TABLE_SIZE; i++) {
       this._onTable[i].reset();
       this._onTable[i].tableIndex = i;
@@ -399,6 +534,7 @@ export class TablingSolver extends AbstractSolver {
   // ---------------------------------------------------------------------------
 
   private _fillTables(): void {
+    this._krakenFilled = false;
     for (let i = 0; i < TABLE_SIZE; i++) {
       this._onTable[i].reset();
       this._onTable[i].tableIndex = i;

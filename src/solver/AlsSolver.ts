@@ -38,7 +38,7 @@ interface RcEntry {
 // ---------------------------------------------------------------------------
 // Lightweight ALS representation
 // ---------------------------------------------------------------------------
-interface Als {
+export interface Als {
   /** Sorted cell indices belonging to this ALS. */
   cells: number[];
   /** Bitmask of digits present in the ALS (bit 1<<d for digit d). */
@@ -98,57 +98,7 @@ export class AlsSolver extends AbstractSolver {
   // We enumerate ALS of size 1..N-1 inside each of the 27 houses.      //
   // ------------------------------------------------------------------ //
   private _collectAlses(): Als[] {
-    const alses: Als[] = [];
-    const HOUSES = Sudoku2.HOUSES;
-    const seen = new Set<string>();
-
-    for (let h = 0; h < 27; h++) {
-      const house = HOUSES[h];
-      // Unsolved cells in this house
-      const unsolved: number[] = [];
-      for (const i of house) {
-        if (this.sudoku.values[i] === 0) unsolved.push(i);
-      }
-      const n = unsolved.length;
-      // ALS size k: from 1 to n-1
-      for (let k = 1; k < n; k++) {
-        // All k-combinations from unsolved
-        for (const combo of kCombinations(unsolved, k)) {
-          // Union candidate mask
-          let mask = 0;
-          for (const i of combo) mask |= this.sudoku.candidates[i];
-          // Count distinct candidates (bits 1..9)
-          if (popcount(mask) !== k + 1) continue;
-          // Deduplicate: sort cells and use as key
-          const key = combo.slice().sort((a, b) => a - b).join(',');
-          if (seen.has(key)) continue;
-          seen.add(key);
-          // Build als
-          const cellsFor: number[][] = new Array(10).fill(null).map(() => []);
-          const buddiesFor: Set<number>[] = new Array(10).fill(null).map(() => new Set());
-          for (let d = 1; d <= 9; d++) {
-            if (!(mask & (1 << d))) continue;
-            for (const i of combo) {
-              if (this.sudoku.isCandidate(i, d)) cellsFor[d].push(i);
-            }
-            // buddiesFor[d] = cells outside ALS that see ALL cells in cellsFor[d] with cand d
-            if (cellsFor[d].length > 0) {
-              const cb = commonBuddies(cellsFor[d]);
-              for (const b of cb) {
-                if (!combo.includes(b) && this.sudoku.values[b] === 0 && this.sudoku.isCandidate(b, d))
-                  buddiesFor[d].add(b);
-              }
-            }
-          }
-          const buddies = new Set<number>();
-          for (let d = 1; d <= 9; d++) {
-            for (const b of buddiesFor[d]) buddies.add(b);
-          }
-          alses.push({ cells: combo.slice().sort((a, b) => a - b), candMask: mask, cellsFor, buddiesFor });
-        }
-      }
-    }
-    return alses;
+    return collectAlses(this.sudoku);
   }
 
   // ------------------------------------------------------------------ //
@@ -610,6 +560,51 @@ export class AlsSolver extends AbstractSolver {
     if (toDelete.length === 0) return null;
     return { type: SolutionType.DEATH_BLOSSOM, placements: [], candidatesToDelete: dedupCands(toDelete) };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Module-level ALS collector — exported for use by TablingSolver ALS nodes.
+// ---------------------------------------------------------------------------
+export function collectAlses(s: Sudoku2): Als[] {
+  const alses: Als[] = [];
+  const HOUSES = Sudoku2.HOUSES;
+  const seen = new Set<string>();
+
+  for (let h = 0; h < 27; h++) {
+    const house = HOUSES[h];
+    const unsolved: number[] = [];
+    for (const i of house) {
+      if (s.values[i] === 0) unsolved.push(i);
+    }
+    const n = unsolved.length;
+    for (let k = 1; k < n; k++) {
+      for (const combo of kCombinations(unsolved, k)) {
+        let mask = 0;
+        for (const i of combo) mask |= s.candidates[i];
+        if (popcount(mask) !== k + 1) continue;
+        const key = combo.slice().sort((a, b) => a - b).join(',');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const cellsFor: number[][] = new Array(10).fill(null).map(() => []);
+        const buddiesFor: Set<number>[] = new Array(10).fill(null).map(() => new Set());
+        for (let d = 1; d <= 9; d++) {
+          if (!(mask & (1 << d))) continue;
+          for (const i of combo) {
+            if (s.isCandidate(i, d)) cellsFor[d].push(i);
+          }
+          if (cellsFor[d].length > 0) {
+            const cb = commonBuddies(cellsFor[d]);
+            for (const b of cb) {
+              if (!combo.includes(b) && s.values[b] === 0 && s.isCandidate(b, d))
+                buddiesFor[d].add(b);
+            }
+          }
+        }
+        alses.push({ cells: combo.slice().sort((a, b) => a - b), candMask: mask, cellsFor, buddiesFor });
+      }
+    }
+  }
+  return alses;
 }
 
 function popcount(mask: number): number {

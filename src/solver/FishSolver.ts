@@ -19,11 +19,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { SolutionStep } from '../Sudoku2';
+import type { EntityRef, SolutionStep } from '../Sudoku2';
 import { Sudoku2 } from '../Sudoku2';
 import { SolutionType } from '../SolutionType';
 import type { Digit } from '../types';
 import { AbstractSolver } from './AbstractSolver';
+import type { TablingSolver } from './TablingSolver';
 
 // ---------------------------------------------------------------------------
 // FishSolver — basic fish (X-Wing, Swordfish, Jellyfish) and their finned
@@ -49,6 +50,12 @@ interface FishCandidate {
 }
 
 export class FishSolver extends AbstractSolver {
+  private _tabling: TablingSolver | null = null;
+
+  setTablingSolver(ts: TablingSolver): void {
+    this._tabling = ts;
+  }
+
   override getStep(type: typeof SolutionType[keyof typeof SolutionType]): SolutionStep | null {
     // Basic fish (rows/cols only)
     const size = fishSize(type);
@@ -72,11 +79,11 @@ export class FishSolver extends AbstractSolver {
       return this._findMutantFish(mutantSize, finned, type);
     }
 
-    // Kraken fish — requires forcing-chain analysis; not yet implemented.
+    // Kraken fish — finned fish + forcing-chain analysis.
     if (type === SolutionType.KRAKEN_FISH ||
         type === SolutionType.KRAKEN_FISH_TYPE_1 ||
         type === SolutionType.KRAKEN_FISH_TYPE_2) {
-      return null;
+      return this._findKrakenFish(type);
     }
 
     return null;
@@ -161,7 +168,15 @@ export class FishSolver extends AbstractSolver {
         const coverCols = [...allCrossing];
         const toDelete = this._basicFishElims(d, baseLines, coverCols, rowBase);
         if (toDelete.length > 0) {
-          return { type, placements: [], candidatesToDelete: toDelete };
+          return {
+            type, placements: [], candidatesToDelete: toDelete,
+            baseEntities: baseLines.map(ln => (rowBase
+              ? { type: 'row' as const, index: ln }
+              : { type: 'col' as const, index: ln })),
+            coverEntities: coverCols.map(ln => (rowBase
+              ? { type: 'col' as const, index: ln }
+              : { type: 'row' as const, index: ln })),
+          };
         }
       } else {
         // Finned fish: look for size-subset of the crossing positions that
@@ -216,7 +231,16 @@ export class FishSolver extends AbstractSolver {
             return finCells.every(f => Sudoku2.BUDDIES[c.index].includes(f));
           });
           if (toDelete.length > 0) {
-            return { type, placements: [], candidatesToDelete: toDelete };
+            return {
+              type, placements: [], candidatesToDelete: toDelete,
+              fins: finCells.map(c => ({ index: c, value: d as Digit })),
+              baseEntities: baseLines.map(ln => (rowBase
+                ? { type: 'row' as const, index: ln }
+                : { type: 'col' as const, index: ln })),
+              coverEntities: coverCombo.map(ln => (rowBase
+                ? { type: 'col' as const, index: ln }
+                : { type: 'row' as const, index: ln })),
+            };
           }
         }
       }
@@ -259,8 +283,8 @@ export class FishSolver extends AbstractSolver {
     finned: boolean,
     type: typeof SolutionType[keyof typeof SolutionType]
   ): SolutionStep | null {
-    // Limited to size ≤ 3 for performance (size ≥ 4 has enormous search space).
-    if (size > 3) return null;
+    // Limited to size ≤ 4 for performance (size ≥ 5 has enormous search space).
+    if (size > 4) return null;
     for (let d = 1; d <= 9; d++) {
       const step = this._searchGeneralFish(d, size, finned, type, 'franken');
       if (step) return step;
@@ -328,6 +352,11 @@ export class FishSolver extends AbstractSolver {
     const allHouses = Array.from({ length: 27 }, (_, i) => i)
       .filter(h => hCells[h].length >= 1);
 
+    const toEntity = (h: number): EntityRef =>
+      h < 9  ? { type: 'row', index: h } :
+      h < 18 ? { type: 'col', index: h - 9 } :
+               { type: 'box', index: h - 18 };
+
     const doSearch = (bPool: number[]): SolutionStep | null => {
       for (const baseComb of kCombos(bPool, size)) {
         // Franken: at least one cover must be a box.
@@ -360,7 +389,12 @@ export class FishSolver extends AbstractSolver {
               c => !baseCells.has(c) && s.values[c] === 0 && s.isCandidate(c, d),
             );
             if (elims.length > 0) {
-              return { type, placements: [], candidatesToDelete: elims.map(c => ({ index: c, value: d as Digit })) };
+              return {
+                type, placements: [],
+                candidatesToDelete: elims.map(c => ({ index: c, value: d as Digit })),
+                baseEntities: baseComb.map(toEntity),
+                coverEntities: coverComb.map(toEntity),
+              };
             }
           } else {
             // Finned: fins = base_cells \ cover_cells; must be non-empty, all in same box.
@@ -374,7 +408,13 @@ export class FishSolver extends AbstractSolver {
                    Sudoku2.box(c) === finBox,
             );
             if (elims.length > 0) {
-              return { type, placements: [], candidatesToDelete: elims.map(c => ({ index: c, value: d as Digit })) };
+              return {
+                type, placements: [],
+                candidatesToDelete: elims.map(c => ({ index: c, value: d as Digit })),
+                fins: fins.map(c => ({ index: c, value: d as Digit })),
+                baseEntities: baseComb.map(toEntity),
+                coverEntities: coverComb.map(toEntity),
+              };
             }
           }
         }
@@ -392,6 +432,107 @@ export class FishSolver extends AbstractSolver {
       // The box-in-base-or-cover constraint handles this in doSearch.
       return doSearch(basePool);
     }
+  }
+
+  // ── Kraken fish ───────────────────────────────────────────────────────────
+  //
+  // Extends finned basic fish (size 2-4) using forcing-chain analysis:
+  // a target candidate T is eliminated when, for every fin cell f, placing
+  // digit d in f forces d to be removed from T via a chain (ON → OFF).
+  //
+  // Only Type 1 is implemented (fin-based Kraken).  Type 2 (missed-base)
+  // returns null for now.
+  // ---------------------------------------------------------------------------
+
+  private _findKrakenFish(
+    type: typeof SolutionType[keyof typeof SolutionType],
+  ): SolutionStep | null {
+    if (!this._tabling) return null;
+    if (type === SolutionType.KRAKEN_FISH_TYPE_2) return null;
+
+    const s = this.sudoku;
+    const HOUSES = Sudoku2.HOUSES;
+
+    for (let d = 1; d <= 9; d++) {
+      for (let size = 2; size <= 4; size++) {
+        // Try rows as base, cols as cover; then cols as base, rows as cover
+        for (const rowBase of [true, false]) {
+          const eligibleLines: { ln: number; occ: number[] }[] = [];
+          for (let ln = 0; ln < 9; ln++) {
+            const hIdx = rowBase ? ln : 9 + ln;
+            const occ: number[] = [];
+            for (const cell of HOUSES[hIdx]) {
+              if (s.values[cell] === 0 && s.isCandidate(cell, d)) {
+                occ.push(rowBase ? Sudoku2.col(cell) : Sudoku2.row(cell));
+              }
+            }
+            if (occ.length >= 2) eligibleLines.push({ ln, occ });
+          }
+
+          for (const baseCombo of kCombos(eligibleLines, size)) {
+            const baseLines = baseCombo.map(e => e.ln);
+
+            const allCrossing = new Set<number>();
+            for (const e of baseCombo) for (const c of e.occ) allCrossing.add(c);
+            if (allCrossing.size < size || allCrossing.size > size + 4) continue;
+
+            const crossArr = [...allCrossing];
+            for (const coverCombo of kCombos(crossArr, size)) {
+              const coverSet = new Set(coverCombo);
+
+              // Find fin cells
+              const finCells: number[] = [];
+              for (const e of baseCombo) {
+                const hIdx = rowBase ? e.ln : 9 + e.ln;
+                for (const cell of HOUSES[hIdx]) {
+                  if (s.values[cell] !== 0 || !s.isCandidate(cell, d)) continue;
+                  const crossIdx = rowBase ? Sudoku2.col(cell) : Sudoku2.row(cell);
+                  if (!coverSet.has(crossIdx)) finCells.push(cell);
+                }
+              }
+              if (finCells.length === 0) continue;
+
+              // Collect targets: in cover lines, not in base lines, still have d
+              const baseLineSet = new Set(baseLines);
+              const toElim: number[] = [];
+              for (const cl of coverCombo) {
+                const hIdx = rowBase ? 9 + cl : cl;
+                for (const cell of HOUSES[hIdx]) {
+                  if (s.values[cell] !== 0 || !s.isCandidate(cell, d)) continue;
+                  const baseLine = rowBase ? Sudoku2.row(cell) : Sudoku2.col(cell);
+                  if (baseLineSet.has(baseLine)) continue;  // part of base
+                  // Skip cells already eliminated by normal finned fish
+                  const finBox = Sudoku2.box(finCells[0]);
+                  if (finCells.every(f => Sudoku2.box(f) === finBox) &&
+                      finCells.every(f => Sudoku2.BUDDIES[cell].includes(f))) continue;
+                  // Kraken check: from every fin (ON premise), does d get forced off this cell?
+                  if (this._tabling!.krakenCheck(finCells, d, cell)) {
+                    toElim.push(cell);
+                  }
+                }
+              }
+              if (toElim.length > 0) {
+                const retType = type === SolutionType.KRAKEN_FISH
+                  ? SolutionType.KRAKEN_FISH_TYPE_1 : type;
+                return {
+                  type: retType,
+                  placements: [],
+                  candidatesToDelete: toElim.map(c => ({ index: c, value: d as Digit })),
+                  fins: finCells.map(c => ({ index: c, value: d as Digit })),
+                  baseEntities: baseLines.map(ln => (rowBase
+                    ? { type: 'row' as const, index: ln }
+                    : { type: 'col' as const, index: ln })),
+                  coverEntities: coverCombo.map(ln => (rowBase
+                    ? { type: 'col' as const, index: ln }
+                    : { type: 'row' as const, index: ln })),
+                };
+              }
+            }
+          }
+        }
+      }
+    }
+    return null;
   }
 }
 

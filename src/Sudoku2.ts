@@ -30,6 +30,15 @@ import type { SolutionType } from "./SolutionType";
  * Describes one logical deduction found by the solver: either a set of
  * candidates to eliminate or a digit to place (or both).
  */
+/**
+ * A reference to a house (row, column, or box) used by fish base/cover sets.
+ * `index` is 0-based within its type (row 0 = top row, box 0 = top-left box).
+ */
+export interface EntityRef {
+  type: 'row' | 'col' | 'box';
+  index: number;
+}
+
 export interface SolutionStep {
   /** Which technique produced this step. */
   type: SolutionType;
@@ -45,6 +54,24 @@ export interface SolutionStep {
    * Empty for naked-single / full-house (those use {@link placements}).
    */
   candidatesToDelete: Candidate[];
+
+  /**
+   * For finned fish: the fin candidates (base cells not covered by any cover
+   * house).  Absent for unfinned techniques.
+   */
+  fins?: Candidate[];
+
+  /**
+   * For basic and finned fish: the base houses that form the fish.
+   * Absent for non-fish techniques.
+   */
+  baseEntities?: EntityRef[];
+
+  /**
+   * For basic and finned fish: the cover houses used to complete the fish.
+   * Absent for non-fish techniques.
+   */
+  coverEntities?: EntityRef[];
 }
 
 // ---------------------------------------------------------------------------
