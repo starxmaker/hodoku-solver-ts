@@ -1222,60 +1222,97 @@ describe("FishSolver", () => {
     });
   });
 
-  // Franken/Mutant Jellyfish and larger (size ≥ 4) are blocked by the size guard
-  // added for performance (combinatorial search space is too large).
+  // Franken Jellyfish (size 4) is now searched; size ≥ 5 is still blocked.
+  describe("Franken Jellyfish", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FRANKEN_JELLYFISH);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.FRANKEN_JELLYFISH);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FRANKEN_JELLYFISH)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FRANKEN_JELLYFISH)).not.toThrow();
+    });
+  });
+
+  describe("Finned Franken Jellyfish", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_FRANKEN_JELLYFISH);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.FINNED_FRANKEN_JELLYFISH);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_FRANKEN_JELLYFISH)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FINNED_FRANKEN_JELLYFISH)).not.toThrow();
+    });
+  });
+
+  // Franken/Mutant size ≥ 5 is blocked for performance.
   // These describe blocks document the cap and verify no crash occurs.
-  describe("Franken Jellyfish (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
-      const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.FRANKEN_JELLYFISH)).toBeNull();
-    });
-  });
 
-  describe("Finned Franken Jellyfish (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
-      const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.FINNED_FRANKEN_JELLYFISH)).toBeNull();
-    });
-  });
-
-  describe("Franken Squirmbag (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Franken Squirmbag (size ≥ 5 — returns null)", () => {
+    test("returns null (size ≥ 5 performance cap)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
       expect(solver.getStep(SolutionType.FRANKEN_SQUIRMBAG)).toBeNull();
     });
   });
 
-  describe("Finned Franken Squirmbag (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Finned Franken Squirmbag (size ≥ 5 — returns null)", () => {
+    test("returns null (size ≥ 5 performance cap)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
       expect(solver.getStep(SolutionType.FINNED_FRANKEN_SQUIRMBAG)).toBeNull();
     });
   });
 
-  describe("Franken Whale (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Franken Whale (size ≥ 5 — returns null)", () => {
+    test("returns null (size ≥ 5 performance cap)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
       expect(solver.getStep(SolutionType.FRANKEN_WHALE)).toBeNull();
     });
   });
 
-  describe("Finned Franken Whale (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Finned Franken Whale (size ≥ 5 — returns null)", () => {
+    test("returns null (size ≥ 5 performance cap)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
       expect(solver.getStep(SolutionType.FINNED_FRANKEN_WHALE)).toBeNull();
     });
   });
 
-  describe("Franken Leviathan (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Franken Leviathan (size ≥ 5 — returns null)", () => {
+    test("returns null (size ≥ 5 performance cap)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
       expect(solver.getStep(SolutionType.FRANKEN_LEVIATHAN)).toBeNull();
     });
   });
 
-  describe("Finned Franken Leviathan (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Finned Franken Leviathan (size ≥ 5 — returns null)", () => {
+    test("returns null (size ≥ 5 performance cap)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
       expect(solver.getStep(SolutionType.FINNED_FRANKEN_LEVIATHAN)).toBeNull();
     });
@@ -1337,18 +1374,80 @@ describe("FishSolver", () => {
     });
   });
 
-  // Kraken fish: not yet implemented — always returns null.
+  // Kraken fish: finned fish extended by forcing-chain analysis.
   describe("Kraken Fish", () => {
-    test("returns null (not yet implemented)", () => {
-      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
-      advanceTechniques(solver, SINGLES);
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
       const step = solver.getStep(SolutionType.KRAKEN_FISH);
-      expect(step).toBeNull();
+      expect(step).not.toBeNull();
+      // Generic KRAKEN_FISH returns whichever subtype is found first (1 or 2).
+      expect([SolutionType.KRAKEN_FISH_TYPE_1, SolutionType.KRAKEN_FISH_TYPE_2]).toContain(step!.type);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.KRAKEN_FISH)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
     });
 
     test("search does not throw on easy puzzle", () => {
       const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.KRAKEN_FISH)).not.toThrow();
+    });
+  });
+
+  describe("Kraken Fish Type 1", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.KRAKEN_FISH_TYPE_1);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.KRAKEN_FISH_TYPE_1);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.KRAKEN_FISH_TYPE_1)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.KRAKEN_FISH_TYPE_1)).not.toThrow();
+    });
+  });
+
+  describe("Kraken Fish Type 2", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.KRAKEN_FISH_TYPE_2);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.KRAKEN_FISH_TYPE_2);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.KRAKEN_FISH_TYPE_2)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.KRAKEN_FISH_TYPE_2)).not.toThrow();
     });
   });
 

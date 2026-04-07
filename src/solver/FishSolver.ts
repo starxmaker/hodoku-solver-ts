@@ -448,10 +448,11 @@ export class FishSolver extends AbstractSolver {
     type: typeof SolutionType[keyof typeof SolutionType],
   ): SolutionStep | null {
     if (!this._tabling) return null;
-    if (type === SolutionType.KRAKEN_FISH_TYPE_2) return null;
 
     const s = this.sudoku;
     const HOUSES = Sudoku2.HOUSES;
+    const wantType1 = type !== SolutionType.KRAKEN_FISH_TYPE_2;
+    const wantType2 = type !== SolutionType.KRAKEN_FISH_TYPE_1;
 
     for (let d = 1; d <= 9; d++) {
       for (let size = 2; size <= 4; size++) {
@@ -480,7 +481,7 @@ export class FishSolver extends AbstractSolver {
             for (const coverCombo of kCombos(crossArr, size)) {
               const coverSet = new Set(coverCombo);
 
-              // Find fin cells
+              // Find fin cells (base cells not in any cover line)
               const finCells: number[] = [];
               for (const e of baseCombo) {
                 const hIdx = rowBase ? e.ln : 9 + e.ln;
@@ -492,40 +493,87 @@ export class FishSolver extends AbstractSolver {
               }
               if (finCells.length === 0) continue;
 
-              // Collect targets: in cover lines, not in base lines, still have d
               const baseLineSet = new Set(baseLines);
-              const toElim: number[] = [];
-              for (const cl of coverCombo) {
-                const hIdx = rowBase ? 9 + cl : cl;
-                for (const cell of HOUSES[hIdx]) {
-                  if (s.values[cell] !== 0 || !s.isCandidate(cell, d)) continue;
-                  const baseLine = rowBase ? Sudoku2.row(cell) : Sudoku2.col(cell);
-                  if (baseLineSet.has(baseLine)) continue;  // part of base
-                  // Skip cells already eliminated by normal finned fish
-                  const finBox = Sudoku2.box(finCells[0]);
-                  if (finCells.every(f => Sudoku2.box(f) === finBox) &&
-                      finCells.every(f => Sudoku2.BUDDIES[cell].includes(f))) continue;
-                  // Kraken check: from every fin (ON premise), does d get forced off this cell?
-                  if (this._tabling!.krakenCheck(finCells, d, cell)) {
-                    toElim.push(cell);
+
+              // ── Kraken Type 1 ──────────────────────────────────────────────
+              // For each non-base cover cell, check if ALL fins force d off it.
+              if (wantType1) {
+                const toElim: number[] = [];
+                for (const cl of coverCombo) {
+                  const hIdx = rowBase ? 9 + cl : cl;
+                  for (const cell of HOUSES[hIdx]) {
+                    if (s.values[cell] !== 0 || !s.isCandidate(cell, d)) continue;
+                    const baseLine = rowBase ? Sudoku2.row(cell) : Sudoku2.col(cell);
+                    if (baseLineSet.has(baseLine)) continue;  // part of base
+                    // Skip cells already eliminated by normal finned fish
+                    const finBox = Sudoku2.box(finCells[0]);
+                    if (finCells.every(f => Sudoku2.box(f) === finBox) &&
+                        finCells.every(f => Sudoku2.BUDDIES[cell].includes(f))) continue;
+                    if (this._tabling!.krakenCheck(finCells, d, cell)) {
+                      toElim.push(cell);
+                    }
                   }
                 }
+                if (toElim.length > 0) {
+                  const retType = type === SolutionType.KRAKEN_FISH
+                    ? SolutionType.KRAKEN_FISH_TYPE_1 : type;
+                  return {
+                    type: retType,
+                    placements: [],
+                    candidatesToDelete: toElim.map(c => ({ index: c, value: d as Digit })),
+                    fins: finCells.map(c => ({ index: c, value: d as Digit })),
+                    baseEntities: baseLines.map(ln => (rowBase
+                      ? { type: 'row' as const, index: ln }
+                      : { type: 'col' as const, index: ln })),
+                    coverEntities: coverCombo.map(ln => (rowBase
+                      ? { type: 'col' as const, index: ln }
+                      : { type: 'row' as const, index: ln })),
+                  };
+                }
               }
-              if (toElim.length > 0) {
-                const retType = type === SolutionType.KRAKEN_FISH
-                  ? SolutionType.KRAKEN_FISH_TYPE_1 : type;
-                return {
-                  type: retType,
-                  placements: [],
-                  candidatesToDelete: toElim.map(c => ({ index: c, value: d as Digit })),
-                  fins: finCells.map(c => ({ index: c, value: d as Digit })),
-                  baseEntities: baseLines.map(ln => (rowBase
-                    ? { type: 'row' as const, index: ln }
-                    : { type: 'col' as const, index: ln })),
-                  coverEntities: coverCombo.map(ln => (rowBase
-                    ? { type: 'col' as const, index: ln }
-                    : { type: 'row' as const, index: ln })),
-                };
+
+              // ── Kraken Type 2 ──────────────────────────────────────────────
+              // For each cover unit, collect non-base cover candidates + fins.
+              // If ALL those cells being ON for d force ec off some common cell,
+              // that cell loses ec (mirrors FishSolver.searchForKraken Type 2).
+              if (wantType2) {
+                for (const cl of coverCombo) {
+                  const hIdxCover = rowBase ? 9 + cl : cl;
+                  const coverCands: number[] = [];
+                  const baseCands: number[] = [];
+                  for (const cell of HOUSES[hIdxCover]) {
+                    if (s.values[cell] !== 0 || !s.isCandidate(cell, d)) continue;
+                    coverCands.push(cell);
+                    const crossIdx = rowBase ? Sudoku2.row(cell) : Sudoku2.col(cell);
+                    if (baseLineSet.has(crossIdx)) baseCands.push(cell);
+                  }
+                  // Skip if all cover candidates are base candidates (normal fish)
+                  if (baseCands.length === coverCands.length) continue;
+
+                  // Premise = non-duplicate union of non-cannibalistic base cands + fins
+                  const premiseSet = new Set([...baseCands, ...finCells]);
+                  const premiseCells = [...premiseSet];
+
+                  for (let ec = 1; ec <= 9; ec++) {
+                    const targets = this._tabling!.krakenCheckType2(premiseCells, d, ec);
+                    if (targets.length > 0) {
+                      const retType = type === SolutionType.KRAKEN_FISH
+                        ? SolutionType.KRAKEN_FISH_TYPE_2 : type;
+                      return {
+                        type: retType,
+                        placements: [],
+                        candidatesToDelete: targets.map(c => ({ index: c, value: ec as Digit })),
+                        fins: finCells.map(c => ({ index: c, value: d as Digit })),
+                        baseEntities: baseLines.map(ln => (rowBase
+                          ? { type: 'row' as const, index: ln }
+                          : { type: 'col' as const, index: ln })),
+                        coverEntities: coverCombo.map(ln => (rowBase
+                          ? { type: 'col' as const, index: ln }
+                          : { type: 'row' as const, index: ln })),
+                      };
+                    }
+                  }
+                }
               }
             }
           }

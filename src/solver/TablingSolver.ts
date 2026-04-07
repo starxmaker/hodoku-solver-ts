@@ -190,6 +190,39 @@ export class TablingSolver extends AbstractSolver {
     return cells.every(ci => this._onTable[ci * 10 + d].offSets[d].has(target));
   }
 
+  /**
+   * For Kraken Fish Type 2: given a set of "premise" cells (non-cannibalistic
+   * base candidates in one cover unit plus fins), returns all cells that can
+   * be eliminated for digit `ec` because every premise cell being ON for `d`
+   * forces `ec` off that cell via a forcing chain.
+   *
+   * Mirrors TablingSolver.checkKrakenTypeTwo() in the Java source.
+   */
+  public krakenCheckType2(indices: number[], d: number, ec: number): number[] {
+    if (!this._krakenFilled) {
+      this._fillTables();
+      this._expandTables(this._onTable, this._offTable);
+      this._krakenFilled = true;
+    }
+    const s = this.sudoku;
+    const indexSet = new Set(indices);
+    // Start with all cells that have ec as a candidate (excluding premise cells).
+    let candidates: number[] = [];
+    for (let cell = 0; cell < 81; cell++) {
+      if (indexSet.has(cell)) continue;
+      if (s.values[cell] === 0 && s.isCandidate(cell, ec)) {
+        candidates.push(cell);
+      }
+    }
+    // Intersect with offSets[ec] from each premise cell's ON-table entry for d.
+    for (const c of indices) {
+      const forced = this._onTable[c * 10 + d].offSets[ec];
+      candidates = candidates.filter(cell => forced.has(cell));
+      if (candidates.length === 0) break;
+    }
+    return candidates;
+  }
+
 
   // â”€â”€ Public interface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
