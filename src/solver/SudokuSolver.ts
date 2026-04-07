@@ -416,6 +416,7 @@ export class SudokuSolver extends AbstractSolver {
       case SolutionType.HIDDEN_SINGLE:
       case SolutionType.LOCKED_PAIR:
       case SolutionType.LOCKED_TRIPLE:
+      case SolutionType.LOCKED_CANDIDATES:
       case SolutionType.LOCKED_CANDIDATES_1:
       case SolutionType.LOCKED_CANDIDATES_2:
       case SolutionType.NAKED_PAIR:

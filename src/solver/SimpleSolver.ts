@@ -71,6 +71,8 @@ export class SimpleSolver extends AbstractSolver {
       case SolutionType.HIDDEN_SINGLE:       return this._findHiddenSingle();
       case SolutionType.LOCKED_PAIR:         return this._findNakedSubset(2, true);
       case SolutionType.LOCKED_TRIPLE:        return this._findNakedSubset(3, true);
+      // Parent type: mirrors Java — tries LC1 then LC2 (whichever fires first).
+      case SolutionType.LOCKED_CANDIDATES:   return this._findLC1() ?? this._findLC2();
       case SolutionType.LOCKED_CANDIDATES_1: return this._findLC1();
       case SolutionType.LOCKED_CANDIDATES_2: return this._findLC2();
       case SolutionType.NAKED_PAIR:          return this._findNakedSubset(2);
