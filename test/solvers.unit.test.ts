@@ -1222,6 +1222,121 @@ describe("FishSolver", () => {
     });
   });
 
+  // Franken/Mutant Jellyfish and larger (size ≥ 4) are blocked by the size guard
+  // added for performance (combinatorial search space is too large).
+  // These describe blocks document the cap and verify no crash occurs.
+  describe("Franken Jellyfish (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.FRANKEN_JELLYFISH)).toBeNull();
+    });
+  });
+
+  describe("Finned Franken Jellyfish (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.FINNED_FRANKEN_JELLYFISH)).toBeNull();
+    });
+  });
+
+  describe("Franken Squirmbag (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.FRANKEN_SQUIRMBAG)).toBeNull();
+    });
+  });
+
+  describe("Finned Franken Squirmbag (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.FINNED_FRANKEN_SQUIRMBAG)).toBeNull();
+    });
+  });
+
+  describe("Franken Whale (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.FRANKEN_WHALE)).toBeNull();
+    });
+  });
+
+  describe("Finned Franken Whale (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.FINNED_FRANKEN_WHALE)).toBeNull();
+    });
+  });
+
+  describe("Franken Leviathan (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.FRANKEN_LEVIATHAN)).toBeNull();
+    });
+  });
+
+  describe("Finned Franken Leviathan (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.FINNED_FRANKEN_LEVIATHAN)).toBeNull();
+    });
+  });
+
+  describe("Mutant Jellyfish (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.MUTANT_JELLYFISH)).toBeNull();
+    });
+  });
+
+  describe("Finned Mutant Jellyfish (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.FINNED_MUTANT_JELLYFISH)).toBeNull();
+    });
+  });
+
+  describe("Mutant Squirmbag (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.MUTANT_SQUIRMBAG)).toBeNull();
+    });
+  });
+
+  describe("Finned Mutant Squirmbag (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.FINNED_MUTANT_SQUIRMBAG)).toBeNull();
+    });
+  });
+
+  describe("Mutant Whale (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.MUTANT_WHALE)).toBeNull();
+    });
+  });
+
+  describe("Finned Mutant Whale (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.FINNED_MUTANT_WHALE)).toBeNull();
+    });
+  });
+
+  describe("Mutant Leviathan (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.MUTANT_LEVIATHAN)).toBeNull();
+    });
+  });
+
+  describe("Finned Mutant Leviathan (size ≥ 4 — returns null)", () => {
+    test("returns null (size ≥ 4 performance cap)", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      expect(solver.getStep(SolutionType.FINNED_MUTANT_LEVIATHAN)).toBeNull();
+    });
+  });
+
   // Kraken fish: not yet implemented — always returns null.
   describe("Kraken Fish", () => {
     test("returns null (not yet implemented)", () => {
@@ -1402,6 +1517,29 @@ describe("TablingSolver", () => {
     });
   });
 
+  // CONTINUOUS_NICE_LOOP is a sub-type that places a digit rather than eliminating.
+  describe("Continuous Nice Loop (sub-type)", () => {
+    test("getStep(CONTINUOUS_NICE_LOOP) finds a step on raw ALS_REF state", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.CONTINUOUS_NICE_LOOP);
+      expect(step).not.toBeNull();
+      // TablingSolver returns the first matching nice-loop step; type may be DISCONTINUOUS or CONTINUOUS
+      expect([
+        SolutionType.DISCONTINUOUS_NICE_LOOP,
+        SolutionType.CONTINUOUS_NICE_LOOP,
+        SolutionType.AIC,
+      ]).toContain(step!.type);
+      expect(
+        step!.candidatesToDelete.length + step!.placements.length
+      ).toBeGreaterThan(0);
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.CONTINUOUS_NICE_LOOP)).not.toThrow();
+    });
+  });
+
   // AIC is a sub-type delegating to the same nice-loop search.
   describe("AIC (sub-type)", () => {
     test("getStep(AIC) returns a DNL or AIC step", () => {
@@ -1540,32 +1678,79 @@ describe("TablingSolver", () => {
   });
 
   // GROUPED_NICE_LOOP searches for nice loops using group nodes.
-  // We verify safety (no crash) and type correctness when a step is found.
   describe("Grouped Nice Loop", () => {
-    test("search does not throw on ALS_REF_PUZZLE", () => {
+    test("finds a step on raw ALS_REF state", () => {
       const solver = makeSolver(ALS_REF_PUZZLE);
-      advanceTechniques(solver, SINGLES);
-      expect(() => solver.getStep(SolutionType.GROUPED_NICE_LOOP)).not.toThrow();
-    });
-
-    test("if a step is found its type is a GROUPED variant", () => {
-      const solver = makeSolver(ALS_REF_PUZZLE);
-      advanceTechniques(solver, SINGLES);
       const step = solver.getStep(SolutionType.GROUPED_NICE_LOOP);
-      if (step !== null) {
-        expect([
-          SolutionType.GROUPED_NICE_LOOP,
-          SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP,
-          SolutionType.GROUPED_CONTINUOUS_NICE_LOOP,
-          SolutionType.GROUPED_AIC,
-        ]).toContain(step.type);
-        expect(step.candidatesToDelete.length + step.placements.length).toBeGreaterThan(0);
-      }
+      expect(step).not.toBeNull();
+      expect([
+        SolutionType.GROUPED_NICE_LOOP,
+        SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP,
+        SolutionType.GROUPED_CONTINUOUS_NICE_LOOP,
+        SolutionType.GROUPED_AIC,
+      ]).toContain(step!.type);
+      expect(step!.candidatesToDelete.length + step!.placements.length).toBeGreaterThan(0);
     });
 
     test("search does not throw on easy puzzle", () => {
       const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.GROUPED_NICE_LOOP)).not.toThrow();
+    });
+  });
+
+  describe("Grouped Discontinuous Nice Loop (sub-type)", () => {
+    test("finds a step on raw ALS_REF state", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP);
+      expect(step).not.toBeNull();
+      expect([
+        SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP,
+        SolutionType.GROUPED_AIC,
+      ]).toContain(step!.type);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP)).not.toThrow();
+    });
+  });
+
+  describe("Grouped Continuous Nice Loop (sub-type)", () => {
+    test("finds a step on raw ALS_REF state", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.GROUPED_CONTINUOUS_NICE_LOOP);
+      expect(step).not.toBeNull();
+      // TablingSolver returns the first grouped nice-loop found; type may be DISCONTINUOUS or CONTINUOUS
+      expect([
+        SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP,
+        SolutionType.GROUPED_CONTINUOUS_NICE_LOOP,
+        SolutionType.GROUPED_AIC,
+      ]).toContain(step!.type);
+      expect(step!.candidatesToDelete.length + step!.placements.length).toBeGreaterThan(0);
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.GROUPED_CONTINUOUS_NICE_LOOP)).not.toThrow();
+    });
+  });
+
+  describe("Grouped AIC (sub-type)", () => {
+    test("finds a step on raw ALS_REF state", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.GROUPED_AIC);
+      expect(step).not.toBeNull();
+      expect([
+        SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP,
+        SolutionType.GROUPED_AIC,
+      ]).toContain(step!.type);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.GROUPED_AIC)).not.toThrow();
     });
   });
 
@@ -1939,25 +2124,54 @@ describe("MiscellaneousSolver", () => {
 describe("TemplateSolver", () => {
 
   describe("Template Set", () => {
-    test("search does not throw on easy puzzle", () => {
-      const solver = makeSolver(EASY_PUZZLE);
-      expect(() => solver.getStep(SolutionType.TEMPLATE_SET)).not.toThrow();
+    test("finds a step on raw ALS_REF state", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.TEMPLATE_SET);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.TEMPLATE_SET);
+      expect(step!.placements.length + step!.candidatesToDelete.length).toBeGreaterThan(0);
     });
 
-    test("search does not throw on swordfish puzzle", () => {
-      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+    test("step output is valid", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.TEMPLATE_SET)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+      for (const { index, value } of step.placements) {
+        expect(values[index]).toBe(0);
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.TEMPLATE_SET)).not.toThrow();
     });
   });
 
   describe("Template Delete", () => {
-    test("search does not throw on easy puzzle", () => {
-      const solver = makeSolver(EASY_PUZZLE);
-      expect(() => solver.getStep(SolutionType.TEMPLATE_DEL)).not.toThrow();
+    test("finds a step on raw ALS_REF state", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.TEMPLATE_DEL);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.TEMPLATE_DEL);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
     });
 
-    test("search does not throw on swordfish puzzle", () => {
-      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.TEMPLATE_DEL)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.TEMPLATE_DEL)).not.toThrow();
     });
   });

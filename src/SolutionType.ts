@@ -37,7 +37,8 @@ export const SolutionType = {
   LOCKED_PAIR: "LOCKED_PAIR",
   LOCKED_TRIPLE: "LOCKED_TRIPLE",
 
-  // Locked candidates
+  // Locked candidates (parent alias used by some UI lookups; not a searchable technique)
+  LOCKED_CANDIDATES: "LOCKED_CANDIDATES",
   LOCKED_CANDIDATES_1: "LOCKED_CANDIDATES_1",
   LOCKED_CANDIDATES_2: "LOCKED_CANDIDATES_2",
 
