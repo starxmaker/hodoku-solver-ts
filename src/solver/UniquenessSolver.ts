@@ -52,6 +52,7 @@ export class UniquenessSolver extends AbstractSolver {
   }
 
   private _findUR1(): SolutionStep | null {
+    if (!this.sudoku.hasUniqueSolution()) return null;
     for (let r1 = 0; r1 < 8; r1++) {
       for (let r2 = r1 + 1; r2 < 9; r2++) {
         for (let c1 = 0; c1 < 8; c1++) {
