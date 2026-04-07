@@ -50,11 +50,36 @@ interface FishCandidate {
 
 export class FishSolver extends AbstractSolver {
   override getStep(type: typeof SolutionType[keyof typeof SolutionType]): SolutionStep | null {
+    // Basic fish (rows/cols only)
     const size = fishSize(type);
-    if (size === 0) return null;
-    const sashimi = isSashimiType(type);
-    const finned = isFinnedType(type) || sashimi;
-    return this._findFish(size, finned, sashimi, type);
+    if (size > 0) {
+      const sashimi = isSashimiType(type);
+      const finned = isFinnedType(type) || sashimi;
+      return this._findFish(size, finned, sashimi, type);
+    }
+
+    // Franken fish (row/col base + any cover including boxes)
+    const frankenSize = frankenFishSize(type);
+    if (frankenSize > 0) {
+      const finned = isFinnedFrankenType(type);
+      return this._findFrankenFish(frankenSize, finned, type);
+    }
+
+    // Mutant fish (any house base/cover)
+    const mutantSize = mutantFishSize(type);
+    if (mutantSize > 0) {
+      const finned = isFinnedMutantType(type);
+      return this._findMutantFish(mutantSize, finned, type);
+    }
+
+    // Kraken fish — requires forcing-chain analysis; not yet implemented.
+    if (type === SolutionType.KRAKEN_FISH ||
+        type === SolutionType.KRAKEN_FISH_TYPE_1 ||
+        type === SolutionType.KRAKEN_FISH_TYPE_2) {
+      return null;
+    }
+
+    return null;
   }
 
   // ------------------------------------------------------------------ //
@@ -220,6 +245,154 @@ export class FishSolver extends AbstractSolver {
     }
     return toDelete;
   }
+
+  // ── Franken fish ─────────────────────────────────────────────────────────
+  //
+  // Base sets: k rows XOR k columns (not boxes).
+  // Cover sets: any k houses from all 27 (rows, cols, boxes),
+  //             must include at least 1 box to distinguish from basic fish.
+  // Finned variant: fins (base cells not in any cover) must be in ≤1 box.
+  // ---------------------------------------------------------------------------
+
+  private _findFrankenFish(
+    size: number,
+    finned: boolean,
+    type: typeof SolutionType[keyof typeof SolutionType]
+  ): SolutionStep | null {
+    // Limited to size ≤ 3 for performance (size ≥ 4 has enormous search space).
+    if (size > 3) return null;
+    for (let d = 1; d <= 9; d++) {
+      const step = this._searchGeneralFish(d, size, finned, type, 'franken');
+      if (step) return step;
+    }
+    return null;
+  }
+
+  // ── Mutant fish ───────────────────────────────────────────────────────────
+  //
+  // Base and cover can use any mix of rows, cols, and boxes.
+  // Must not be reducible to a basic or Franken fish.
+  // Limited to size ≤ 3 for performance (size ≥ 4 has enormous search space).
+  // ---------------------------------------------------------------------------
+
+  private _findMutantFish(
+    size: number,
+    finned: boolean,
+    type: typeof SolutionType[keyof typeof SolutionType]
+  ): SolutionStep | null {
+    // Limit search to manageable sizes.
+    if (size > 3) return null;
+    for (let d = 1; d <= 9; d++) {
+      const step = this._searchGeneralFish(d, size, finned, type, 'mutant');
+      if (step) return step;
+    }
+    return null;
+  }
+
+  // ── General fish search (Franken or Mutant) ───────────────────────────────
+  //
+  // fishKind: 'franken' → base must be all rows OR all cols;
+  //                        cover must include ≥1 box.
+  //           'mutant'  → base may include boxes; cover may be any mix;
+  //                        base must not be "all rows" or "all cols"
+  //                        (those cases are handled by Franken).
+  // ---------------------------------------------------------------------------
+
+  private _searchGeneralFish(
+    d: number,
+    size: number,
+    finned: boolean,
+    type: typeof SolutionType[keyof typeof SolutionType],
+    fishKind: 'franken' | 'mutant'
+  ): SolutionStep | null {
+    const s = this.sudoku;
+
+    // Pre-compute cells with d in each house.
+    const hCells: number[][] = Array.from({ length: 27 }, (_, h) =>
+      (Sudoku2.HOUSES[h] as readonly number[]).filter(
+        c => s.values[c] === 0 && s.isCandidate(c, d),
+      ),
+    );
+
+    // Build base pool.
+    let basePool: number[];
+    if (fishKind === 'franken') {
+      // Rows (0-8) and cols (9-17) as separate base types; try each in turn.
+      basePool = []; // will be handled by two passes below
+    } else {
+      // Mutant: any of the 27 houses.
+      basePool = Array.from({ length: 27 }, (_, i) => i)
+        .filter(h => hCells[h].length >= 1);
+    }
+
+    const allHouses = Array.from({ length: 27 }, (_, i) => i)
+      .filter(h => hCells[h].length >= 1);
+
+    const doSearch = (bPool: number[]): SolutionStep | null => {
+      for (const baseComb of kCombos(bPool, size)) {
+        // Franken: at least one cover must be a box.
+        // Mutant: allow any cover, but base must not be all-row or all-col
+        //         (handled by filtering bPool for mutant).
+
+        // Compute base_cells.
+        const baseCells = new Set<number>();
+        for (const h of baseComb) for (const c of hCells[h]) baseCells.add(c);
+        if (baseCells.size === 0) continue;
+
+        // Cover pool: all houses not in base that have d-candidates.
+        const baseSet = new Set(baseComb);
+        const coverPool = allHouses.filter(h => !baseSet.has(h));
+
+        for (const coverComb of kCombos(coverPool, size)) {
+          // Franken constraint: at least one box (h >= 18) in cover.
+          if (fishKind === 'franken' && !coverComb.some(h => h >= 18)) continue;
+          // Mutant constraint: at least one box in base OR cover.
+          if (fishKind === 'mutant' && !baseComb.some(h => h >= 18) &&
+              !coverComb.some(h => h >= 18)) continue;
+
+          const coverCells = new Set<number>();
+          for (const h of coverComb) for (const c of hCells[h]) coverCells.add(c);
+
+          if (!finned) {
+            // Unfinned: base_cells ⊆ cover_cells.
+            if (![...baseCells].every(c => coverCells.has(c))) continue;
+            const elims = [...coverCells].filter(
+              c => !baseCells.has(c) && s.values[c] === 0 && s.isCandidate(c, d),
+            );
+            if (elims.length > 0) {
+              return { type, placements: [], candidatesToDelete: elims.map(c => ({ index: c, value: d as Digit })) };
+            }
+          } else {
+            // Finned: fins = base_cells \ cover_cells; must be non-empty, all in same box.
+            const fins = [...baseCells].filter(c => !coverCells.has(c));
+            if (fins.length === 0) continue;
+            const finBox = Sudoku2.box(fins[0]);
+            if (!fins.every(f => Sudoku2.box(f) === finBox)) continue;
+            // Elims: in cover, not in base, in fin box.
+            const elims = [...coverCells].filter(
+              c => !baseCells.has(c) && s.values[c] === 0 && s.isCandidate(c, d) &&
+                   Sudoku2.box(c) === finBox,
+            );
+            if (elims.length > 0) {
+              return { type, placements: [], candidatesToDelete: elims.map(c => ({ index: c, value: d as Digit })) };
+            }
+          }
+        }
+      }
+      return null;
+    };
+
+    if (fishKind === 'franken') {
+      // Try rows as base (0-8), then cols (9-17).
+      const rowBase = Array.from({ length: 9 }, (_, r) => r).filter(h => hCells[h].length >= 1);
+      const colBase = Array.from({ length: 9 }, (_, c) => 9 + c).filter(h => hCells[h].length >= 1);
+      return doSearch(rowBase) ?? doSearch(colBase);
+    } else {
+      // Mutant: exclude combinations that are all-row or all-col (those are handled by Franken).
+      // The box-in-base-or-cover constraint handles this in doSearch.
+      return doSearch(basePool);
+    }
+  }
 }
 
 function fishSize(type: typeof SolutionType[keyof typeof SolutionType]): number {
@@ -262,6 +435,60 @@ function isSashimiType(type: typeof SolutionType[keyof typeof SolutionType]): bo
     type === SolutionType.SASHIMI_SQUIRMBAG ||
     type === SolutionType.SASHIMI_WHALE ||
     type === SolutionType.SASHIMI_LEVIATHAN;
+}
+
+function frankenFishSize(type: typeof SolutionType[keyof typeof SolutionType]): number {
+  switch (type) {
+    case SolutionType.FRANKEN_X_WING:
+    case SolutionType.FINNED_FRANKEN_X_WING:        return 2;
+    case SolutionType.FRANKEN_SWORDFISH:
+    case SolutionType.FINNED_FRANKEN_SWORDFISH:     return 3;
+    case SolutionType.FRANKEN_JELLYFISH:
+    case SolutionType.FINNED_FRANKEN_JELLYFISH:     return 4;
+    case SolutionType.FRANKEN_SQUIRMBAG:
+    case SolutionType.FINNED_FRANKEN_SQUIRMBAG:     return 5;
+    case SolutionType.FRANKEN_WHALE:
+    case SolutionType.FINNED_FRANKEN_WHALE:         return 6;
+    case SolutionType.FRANKEN_LEVIATHAN:
+    case SolutionType.FINNED_FRANKEN_LEVIATHAN:     return 7;
+    default: return 0;
+  }
+}
+
+function isFinnedFrankenType(type: typeof SolutionType[keyof typeof SolutionType]): boolean {
+  return type === SolutionType.FINNED_FRANKEN_X_WING    ||
+         type === SolutionType.FINNED_FRANKEN_SWORDFISH ||
+         type === SolutionType.FINNED_FRANKEN_JELLYFISH ||
+         type === SolutionType.FINNED_FRANKEN_SQUIRMBAG ||
+         type === SolutionType.FINNED_FRANKEN_WHALE      ||
+         type === SolutionType.FINNED_FRANKEN_LEVIATHAN;
+}
+
+function mutantFishSize(type: typeof SolutionType[keyof typeof SolutionType]): number {
+  switch (type) {
+    case SolutionType.MUTANT_X_WING:
+    case SolutionType.FINNED_MUTANT_X_WING:         return 2;
+    case SolutionType.MUTANT_SWORDFISH:
+    case SolutionType.FINNED_MUTANT_SWORDFISH:      return 3;
+    case SolutionType.MUTANT_JELLYFISH:
+    case SolutionType.FINNED_MUTANT_JELLYFISH:      return 4;
+    case SolutionType.MUTANT_SQUIRMBAG:
+    case SolutionType.FINNED_MUTANT_SQUIRMBAG:      return 5;
+    case SolutionType.MUTANT_WHALE:
+    case SolutionType.FINNED_MUTANT_WHALE:          return 6;
+    case SolutionType.MUTANT_LEVIATHAN:
+    case SolutionType.FINNED_MUTANT_LEVIATHAN:      return 7;
+    default: return 0;
+  }
+}
+
+function isFinnedMutantType(type: typeof SolutionType[keyof typeof SolutionType]): boolean {
+  return type === SolutionType.FINNED_MUTANT_X_WING    ||
+         type === SolutionType.FINNED_MUTANT_SWORDFISH ||
+         type === SolutionType.FINNED_MUTANT_JELLYFISH ||
+         type === SolutionType.FINNED_MUTANT_SQUIRMBAG ||
+         type === SolutionType.FINNED_MUTANT_WHALE      ||
+         type === SolutionType.FINNED_MUTANT_LEVIATHAN;
 }
 
 function* kCombos<T>(arr: T[], k: number, start = 0): Generator<T[]> {

@@ -61,10 +61,13 @@ const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
   SolutionType.WHALE,
   SolutionType.LEVIATHAN,
   SolutionType.REMOTE_PAIR,
+  SolutionType.BUG_PLUS_1,             // Java index 2900
   SolutionType.SKYSCRAPER,
   SolutionType.TWO_STRING_KITE,
+  SolutionType.DUAL_TWO_STRING_KITE,
   SolutionType.TURBOT_FISH,
   SolutionType.EMPTY_RECTANGLE,
+  SolutionType.DUAL_EMPTY_RECTANGLE,
   SolutionType.W_WING,
   SolutionType.XY_WING,
   SolutionType.XYZ_WING,
@@ -77,7 +80,6 @@ const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
   SolutionType.HIDDEN_RECTANGLE,
   SolutionType.AVOIDABLE_RECTANGLE_1,
   SolutionType.AVOIDABLE_RECTANGLE_2,
-  SolutionType.BUG_PLUS_1,
   SolutionType.FINNED_X_WING,
   SolutionType.SASHIMI_X_WING,
   SolutionType.FINNED_SWORDFISH,
@@ -90,16 +92,48 @@ const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
   SolutionType.SASHIMI_WHALE,
   SolutionType.FINNED_LEVIATHAN,
   SolutionType.SASHIMI_LEVIATHAN,
-  SolutionType.SUE_DE_COQ,
-  SolutionType.SIMPLE_COLORS,
-  SolutionType.MULTI_COLORS,
-  SolutionType.X_CHAIN,
-  SolutionType.XY_CHAIN,
-  SolutionType.NICE_LOOP,
+  // Misc, coloring, chains — Java 5300–5650 (cheaper than Franken/Mutant fish)
+  SolutionType.SUE_DE_COQ,             // 5300
+  SolutionType.SIMPLE_COLORS,          // 5330
+  SolutionType.MULTI_COLORS,           // 5360
+  SolutionType.X_CHAIN,                // 5400
+  SolutionType.XY_CHAIN,               // 5500
+  SolutionType.NICE_LOOP,              // 5600
+  SolutionType.GROUPED_NICE_LOOP,      // 5650
+  // ALS + Death Blossom — Java 5700–6000
   SolutionType.ALS_XZ,
   SolutionType.ALS_XY_WING,
-  SolutionType.ALS_CHAIN,
+  SolutionType.ALS_XY_CHAIN,
   SolutionType.DEATH_BLOSSOM,
+  // Franken fish — Java 6100–7200
+  SolutionType.FRANKEN_X_WING,
+  SolutionType.FRANKEN_SWORDFISH,
+  SolutionType.FRANKEN_JELLYFISH,
+  SolutionType.FRANKEN_SQUIRMBAG,
+  SolutionType.FRANKEN_WHALE,
+  SolutionType.FRANKEN_LEVIATHAN,
+  SolutionType.FINNED_FRANKEN_X_WING,
+  SolutionType.FINNED_FRANKEN_SWORDFISH,
+  SolutionType.FINNED_FRANKEN_JELLYFISH,
+  SolutionType.FINNED_FRANKEN_SQUIRMBAG,
+  SolutionType.FINNED_FRANKEN_WHALE,
+  SolutionType.FINNED_FRANKEN_LEVIATHAN,
+  // Mutant fish — Java 7300–8400
+  SolutionType.MUTANT_X_WING,
+  SolutionType.MUTANT_SWORDFISH,
+  SolutionType.MUTANT_JELLYFISH,
+  SolutionType.MUTANT_SQUIRMBAG,
+  SolutionType.MUTANT_WHALE,
+  SolutionType.MUTANT_LEVIATHAN,
+  SolutionType.FINNED_MUTANT_X_WING,
+  SolutionType.FINNED_MUTANT_SWORDFISH,
+  SolutionType.FINNED_MUTANT_JELLYFISH,
+  SolutionType.FINNED_MUTANT_SQUIRMBAG,
+  SolutionType.FINNED_MUTANT_WHALE,
+  SolutionType.FINNED_MUTANT_LEVIATHAN,
+  // Kraken fish — Java 8450
+  SolutionType.KRAKEN_FISH,
+  // Last resort — Java 8500–8900
   SolutionType.FORCING_CHAIN,
   SolutionType.FORCING_NET,
   SolutionType.TEMPLATE_SET,
@@ -166,6 +200,36 @@ const STEP_BASE_SCORES: Partial<Record<string, number>> = {
   [SolutionType.SASHIMI_WHALE]:           470,
   [SolutionType.FINNED_LEVIATHAN]:        470,
   [SolutionType.SASHIMI_LEVIATHAN]:       470,
+  // Franken fish scores (from Java Options)
+  [SolutionType.FRANKEN_X_WING]:          300,
+  [SolutionType.FRANKEN_SWORDFISH]:       350,
+  [SolutionType.FRANKEN_JELLYFISH]:       370,
+  [SolutionType.FRANKEN_SQUIRMBAG]:       470,
+  [SolutionType.FRANKEN_WHALE]:           470,
+  [SolutionType.FRANKEN_LEVIATHAN]:       470,
+  [SolutionType.FINNED_FRANKEN_X_WING]:   390,
+  [SolutionType.FINNED_FRANKEN_SWORDFISH]:410,
+  [SolutionType.FINNED_FRANKEN_JELLYFISH]:430,
+  [SolutionType.FINNED_FRANKEN_SQUIRMBAG]:470,
+  [SolutionType.FINNED_FRANKEN_WHALE]:    470,
+  [SolutionType.FINNED_FRANKEN_LEVIATHAN]:470,
+  // Mutant fish scores
+  [SolutionType.MUTANT_X_WING]:           450,
+  [SolutionType.MUTANT_SWORDFISH]:        450,
+  [SolutionType.MUTANT_JELLYFISH]:        450,
+  [SolutionType.MUTANT_SQUIRMBAG]:        470,
+  [SolutionType.MUTANT_WHALE]:            470,
+  [SolutionType.MUTANT_LEVIATHAN]:        470,
+  [SolutionType.FINNED_MUTANT_X_WING]:    470,
+  [SolutionType.FINNED_MUTANT_SWORDFISH]: 470,
+  [SolutionType.FINNED_MUTANT_JELLYFISH]: 470,
+  [SolutionType.FINNED_MUTANT_SQUIRMBAG]: 470,
+  [SolutionType.FINNED_MUTANT_WHALE]:     470,
+  [SolutionType.FINNED_MUTANT_LEVIATHAN]: 470,
+  // Kraken fish scores
+  [SolutionType.KRAKEN_FISH]:             470,
+  [SolutionType.KRAKEN_FISH_TYPE_1]:      470,
+  [SolutionType.KRAKEN_FISH_TYPE_2]:      470,
   [SolutionType.SUE_DE_COQ]:              250,
   [SolutionType.SIMPLE_COLORS]:           150,
   [SolutionType.SIMPLE_COLORS_TRAP]:      150,
@@ -178,7 +242,7 @@ const STEP_BASE_SCORES: Partial<Record<string, number>> = {
   [SolutionType.NICE_LOOP]:               280,
   [SolutionType.ALS_XZ]:                  300,
   [SolutionType.ALS_XY_WING]:             320,
-  [SolutionType.ALS_CHAIN]:               340,
+  [SolutionType.ALS_XY_CHAIN]:            340,
   [SolutionType.DEATH_BLOSSOM]:           360,
   [SolutionType.FORCING_CHAIN]:           500,
   [SolutionType.FORCING_NET]:             700,
@@ -380,6 +444,36 @@ export class SudokuSolver extends AbstractSolver {
       case SolutionType.SASHIMI_SQUIRMBAG:
       case SolutionType.SASHIMI_WHALE:
       case SolutionType.SASHIMI_LEVIATHAN:
+      // Franken fish
+      case SolutionType.FRANKEN_X_WING:
+      case SolutionType.FRANKEN_SWORDFISH:
+      case SolutionType.FRANKEN_JELLYFISH:
+      case SolutionType.FRANKEN_SQUIRMBAG:
+      case SolutionType.FRANKEN_WHALE:
+      case SolutionType.FRANKEN_LEVIATHAN:
+      case SolutionType.FINNED_FRANKEN_X_WING:
+      case SolutionType.FINNED_FRANKEN_SWORDFISH:
+      case SolutionType.FINNED_FRANKEN_JELLYFISH:
+      case SolutionType.FINNED_FRANKEN_SQUIRMBAG:
+      case SolutionType.FINNED_FRANKEN_WHALE:
+      case SolutionType.FINNED_FRANKEN_LEVIATHAN:
+      // Mutant fish
+      case SolutionType.MUTANT_X_WING:
+      case SolutionType.MUTANT_SWORDFISH:
+      case SolutionType.MUTANT_JELLYFISH:
+      case SolutionType.MUTANT_SQUIRMBAG:
+      case SolutionType.MUTANT_WHALE:
+      case SolutionType.MUTANT_LEVIATHAN:
+      case SolutionType.FINNED_MUTANT_X_WING:
+      case SolutionType.FINNED_MUTANT_SWORDFISH:
+      case SolutionType.FINNED_MUTANT_JELLYFISH:
+      case SolutionType.FINNED_MUTANT_SQUIRMBAG:
+      case SolutionType.FINNED_MUTANT_WHALE:
+      case SolutionType.FINNED_MUTANT_LEVIATHAN:
+      // Kraken fish
+      case SolutionType.KRAKEN_FISH:
+      case SolutionType.KRAKEN_FISH_TYPE_1:
+      case SolutionType.KRAKEN_FISH_TYPE_2:
         return this._fish;
 
       case SolutionType.SKYSCRAPER:
@@ -396,7 +490,11 @@ export class SudokuSolver extends AbstractSolver {
         return this._wing;
 
       case SolutionType.SIMPLE_COLORS:
+      case SolutionType.SIMPLE_COLORS_TRAP:
+      case SolutionType.SIMPLE_COLORS_WRAP:
       case SolutionType.MULTI_COLORS:
+      case SolutionType.MULTI_COLORS_1:
+      case SolutionType.MULTI_COLORS_2:
         return this._coloring;
 
       case SolutionType.REMOTE_PAIR:
@@ -418,7 +516,7 @@ export class SudokuSolver extends AbstractSolver {
 
       case SolutionType.ALS_XZ:
       case SolutionType.ALS_XY_WING:
-      case SolutionType.ALS_CHAIN:
+      case SolutionType.ALS_XY_CHAIN:
       case SolutionType.DEATH_BLOSSOM:
         return this._als;
 

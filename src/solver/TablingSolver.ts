@@ -110,12 +110,62 @@ const BUDDY_SETS: readonly Set<number>[] = Sudoku2.BUDDIES.map(b => new Set(b));
 const TABLE_SIZE = 810;
 
 // ---------------------------------------------------------------------------
+// GroupNode — a set of 2-3 cells in the same row/column AND same box that
+// share a common candidate.  A group acts as a compound chain node: the
+// group is "OFF" when ALL its cells lose the candidate.
+// ---------------------------------------------------------------------------
+
+interface GroupNode {
+  readonly cells: readonly number[];   // 2 or 3 cell indices
+  readonly digit: number;              // candidate digit (1-9)
+  readonly row: number;                // row index (0-8), or -1 if column-based
+  readonly col: number;                // col index (0-8), or -1 if row-based
+  readonly block: number;              // box index (0-8)
+}
+
+/** Collect all group nodes for the current grid state. */
+function collectGroupNodes(s: Sudoku2): GroupNode[] {
+  const nodes: GroupNode[] = [];
+  // Check rows (HOUSES[0..8]) and columns (HOUSES[9..17]).
+  for (let lineType = 0; lineType < 2; lineType++) {
+    for (let ln = 0; ln < 9; ln++) {
+      const hIdx = lineType === 0 ? ln : 9 + ln;
+      for (let d = 1; d <= 9; d++) {
+        // Group cells with d in this line by box.
+        const byBox = new Map<number, number[]>();
+        for (const c of HOUSE_CELLS[hIdx]) {
+          if (s.values[c] === 0 && s.isCandidate(c, d)) {
+            const b = Sudoku2.box(c);
+            if (!byBox.has(b)) byBox.set(b, []);
+            byBox.get(b)!.push(c);
+          }
+        }
+        for (const [b, cells] of byBox) {
+          if (cells.length >= 2) {
+            nodes.push({
+              cells,
+              digit: d,
+              row: lineType === 0 ? ln : -1,
+              col: lineType === 1 ? ln : -1,
+              block: b,
+            });
+          }
+        }
+      }
+    }
+  }
+  return nodes;
+}
+
+// ---------------------------------------------------------------------------
 // TablingSolver
 // ---------------------------------------------------------------------------
 
 export class TablingSolver extends AbstractSolver {
   private readonly _onTable: TableEntry[] = Array.from({ length: TABLE_SIZE }, () => new TableEntry());
   private readonly _offTable: TableEntry[] = Array.from({ length: TABLE_SIZE }, () => new TableEntry());
+  private _groupImplicationFired = false;
+
 
   // â”€â”€ Public interface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -126,6 +176,11 @@ export class TablingSolver extends AbstractSolver {
       case SolutionType.CONTINUOUS_NICE_LOOP:
       case SolutionType.AIC:
         return this._getNiceLoop();
+      case SolutionType.GROUPED_NICE_LOOP:
+      case SolutionType.GROUPED_CONTINUOUS_NICE_LOOP:
+      case SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP:
+      case SolutionType.GROUPED_AIC:
+        return this._getGroupedNiceLoop();
       case SolutionType.FORCING_CHAIN:
       case SolutionType.FORCING_CHAIN_CONTRADICTION:
       case SolutionType.FORCING_CHAIN_VERITY:
@@ -147,6 +202,136 @@ export class TablingSolver extends AbstractSolver {
     return this._checkNiceLoops(this._onTable)
         ?? this._checkNiceLoops(this._offTable)
         ?? this._checkAics(this._offTable);
+  }
+
+  // ── Grouped Nice Loop ───────────────────────────────────────────────────────
+  //
+  // After filling direct-implication tables, expands them with group-node
+  // implications: when all cells of a GroupNode lose their candidate (group
+  // OFF), any single remaining candidate in the group's row/col/box is forced
+  // ON.  Only fires a GROUPED step when at least one group implication was
+  // actually used.
+  // ---------------------------------------------------------------------------
+
+  private _getGroupedNiceLoop(): SolutionStep | null {
+    const groups = collectGroupNodes(this.sudoku);
+    if (groups.length === 0) return null;
+
+    this._groupImplicationFired = false;
+    this._fillTables();
+    this._expandTablesWithGroups(this._onTable, this._offTable, groups);
+
+    if (!this._groupImplicationFired) return null;
+
+    const step = this._checkNiceLoops(this._onTable)
+        ?? this._checkNiceLoops(this._offTable)
+        ?? this._checkAics(this._offTable);
+
+    if (!step) return null;
+
+    if (step.type === SolutionType.DISCONTINUOUS_NICE_LOOP)
+      return { ...step, type: SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP };
+    if (step.type === SolutionType.CONTINUOUS_NICE_LOOP)
+      return { ...step, type: SolutionType.GROUPED_CONTINUOUS_NICE_LOOP };
+    if (step.type === SolutionType.AIC)
+      return { ...step, type: SolutionType.GROUPED_AIC };
+    return { ...step, type: SolutionType.GROUPED_NICE_LOOP };
+  }
+
+  // ── expandTablesWithGroups() ────────────────────────────────────────────────
+  //
+  // Same BFS as _expandTables() but with an extra "group-OFF" check:
+  // whenever a new OFF(d) entry is added to a destination table, we check
+  // all group nodes G that contain that cell.  If ALL cells of G are now
+  // present in offSets[d] of the destination, the group is effectively OFF;
+  // we then look for a single remaining d-candidate in G's row, col, or block
+  // and force it ON (addSet).
+  // ---------------------------------------------------------------------------
+
+  private _expandTablesWithGroups(
+    onTable: TableEntry[],
+    offTable: TableEntry[],
+    groups: GroupNode[],
+  ): void {
+    type SnapEntry = { cell: number; d: number; isOn: boolean };
+    const onSnap:  SnapEntry[][] = Array.from({ length: TABLE_SIZE }, () => []);
+    const offSnap: SnapEntry[][] = Array.from({ length: TABLE_SIZE }, () => []);
+
+    for (let ti = 0; ti < TABLE_SIZE; ti++) {
+      const on  = onTable[ti];
+      const off = offTable[ti];
+      for (let d = 1; d <= 9; d++) {
+        for (const c of on.onSets[d])   onSnap[ti].push({ cell: c, d, isOn: true });
+        for (const c of on.offSets[d])  onSnap[ti].push({ cell: c, d, isOn: false });
+        for (const c of off.onSets[d])  offSnap[ti].push({ cell: c, d, isOn: true });
+        for (const c of off.offSets[d]) offSnap[ti].push({ cell: c, d, isOn: false });
+      }
+    }
+
+    const s = this.sudoku;
+
+    // Inline helper: if group g is fully OFF in dest (for digit d), find the
+    // sole remaining d-cell in each of g's houses and force it ON.
+    const checkGroupOff = (
+      g: GroupNode,
+      dest: TableEntry,
+      queue: SnapEntry[],
+    ): void => {
+      const d = g.digit;
+      // All group cells except the one just added must also be in offSets[d].
+      if (!g.cells.every(c => dest.offSets[d].has(c))) return;
+      // Group is fully OFF — check for solo positions.
+      const solveHouse = (houseIdx: number): void => {
+        const remaining: number[] = (HOUSE_CELLS[houseIdx] as number[]).filter(
+          c => !g.cells.includes(c) && s.values[c] === 0 && s.isCandidate(c, d),
+        );
+        if (remaining.length === 1 && dest.addSet(remaining[0], d)) {
+          this._groupImplicationFired = true;
+          queue.push({ cell: remaining[0], d, isOn: true });
+        }
+      };
+      if (g.row >= 0)  solveHouse(g.row);
+      if (g.col >= 0)  solveHouse(9 + g.col);
+      solveHouse(18 + g.block);
+    };
+
+    // Build per-digit group lookup for efficiency.
+    const groupsByDigit: GroupNode[][] = Array.from({ length: 10 }, () => []);
+    for (const g of groups) groupsByDigit[g.digit].push(g);
+
+    for (const [table, snap] of [[onTable, onSnap], [offTable, offSnap]] as const) {
+      for (let ti = 0; ti < TABLE_SIZE; ti++) {
+        const dest = table[ti];
+        if (!dest.populated) continue;
+
+        const premiseCi = (ti / 10) | 0;
+        const premiseD  = ti % 10;
+
+        const queue: SnapEntry[] = [...snap[ti]];
+        let qi = 0;
+        while (qi < queue.length) {
+          const { cell: c, d, isOn } = queue[qi++];
+          if (c === premiseCi && d === premiseD) continue;
+
+          const srcTi = c * 10 + d;
+          const srcSnap = isOn ? onSnap[srcTi] : offSnap[srcTi];
+
+          for (const { cell: c2, d: d2, isOn: isOn2 } of srcSnap) {
+            if (isOn2) {
+              if (dest.addSet(c2, d2)) queue.push({ cell: c2, d: d2, isOn: true });
+            } else {
+              if (dest.addDel(c2, d2)) {
+                queue.push({ cell: c2, d: d2, isOn: false });
+                // Group-OFF check: c2 going OFF may complete a group.
+                for (const g of groupsByDigit[d2]) {
+                  if (g.cells.includes(c2)) checkGroupOff(g, dest, queue);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   private _getForcingChain(): SolutionStep | null {
@@ -723,4 +908,5 @@ function _netPropagateOff(
     _netScanHiddenSingles(wVals, wCands, entry, queue);
   }
 }
+
 

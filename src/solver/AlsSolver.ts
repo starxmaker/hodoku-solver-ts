@@ -86,7 +86,7 @@ export class AlsSolver extends AbstractSolver {
   override getStep(type: typeof SolutionType[keyof typeof SolutionType]): SolutionStep | null {
     if (type === SolutionType.ALS_XZ)       return this._findAlsXZ();
     if (type === SolutionType.ALS_XY_WING)  return this._findAlsXYWing();
-    if (type === SolutionType.ALS_CHAIN)    return this._findAlsChain();
+    if (type === SolutionType.ALS_XY_CHAIN) return this._findAlsChain();
     if (type === SolutionType.DEATH_BLOSSOM) return this._findDeathBlossom();
     return null;
   }
@@ -493,7 +493,7 @@ export class AlsSolver extends AbstractSolver {
       }
     }
     if (toDelete.length === 0) return null;
-    return { type: SolutionType.ALS_CHAIN, placements: [], candidatesToDelete: dedupCands(toDelete) };
+    return { type: SolutionType.ALS_XY_CHAIN, placements: [], candidatesToDelete: dedupCands(toDelete) };
   }
 
   // -------------------------------------------------------------------------

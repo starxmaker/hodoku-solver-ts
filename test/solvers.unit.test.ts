@@ -19,7 +19,9 @@ const XY_WING_PUZZLE         = "000600500008000000009003006000000000006050090040
 const XYZ_WING_PUZZLE        = "900008050060050030000700060000009001009000070050003600006007040075000083000030000";
 const W_WING_PUZZLE          = "010000070000015060870063050000000000009100600000000000040390027080640000090000080";
 const SIMPLE_COLORS_PUZZLE   = "000700509000100060050006070900000006004050800600000003080600030060001000709004000";
+const SIMPLE_COLORS_WRAP_PUZZLE = "200080300060070084030500209000105408000000000402706000301007040720040060004010003";
 const MULTI_COLORS_PUZZLE    = "060040100300200000010930054001050060000000000020010800890065070000009005007080090";
+const MULTI_COLORS_2_PUZZLE  = "800000000003600000070090200060005300400050001000008020000040070500000080020700600";
 const REMOTE_PAIR_PUZZLE     = "000700080070050000000008030090000400002030900003000060080300000000010050060004000";
 const X_CHAIN_PUZZLE         = "800009040040003005000460700900030008700000006600080009009060000300700060060900008";
 const XY_CHAIN_PUZZLE        = "000060080060000050080090030000900310300000007075008000040070090050000040090030000";
@@ -372,6 +374,107 @@ describe("ColoringSolver", () => {
     test("search does not throw on easy puzzle", () => {
       const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.MULTI_COLORS)).not.toThrow();
+    });
+  });
+
+  // Sub-type direct queries (after sub-type routing fix in _solverFor).
+  describe("Simple Colors – Trap sub-type", () => {
+    test("finds a TRAP step directly", () => {
+      const solver = makeSolver(SIMPLE_COLORS_PUZZLE);
+      const step = solver.getStep(SolutionType.SIMPLE_COLORS_TRAP);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.SIMPLE_COLORS_TRAP);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("TRAP step eliminations are valid", () => {
+      const solver = makeSolver(SIMPLE_COLORS_PUZZLE);
+      const step = solver.getStep(SolutionType.SIMPLE_COLORS_TRAP)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step!.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.SIMPLE_COLORS_TRAP)).not.toThrow();
+    });
+  });
+
+  describe("Simple Colors – Wrap sub-type", () => {
+    test("finds a WRAP step directly", () => {
+      const solver = makeSolver(SIMPLE_COLORS_WRAP_PUZZLE);
+      const step = solver.getStep(SolutionType.SIMPLE_COLORS_WRAP);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.SIMPLE_COLORS_WRAP);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("WRAP step eliminations are valid", () => {
+      const solver = makeSolver(SIMPLE_COLORS_WRAP_PUZZLE);
+      const step = solver.getStep(SolutionType.SIMPLE_COLORS_WRAP)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step!.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.SIMPLE_COLORS_WRAP)).not.toThrow();
+    });
+  });
+
+  describe("Multi-Colors – Type 1 sub-type", () => {
+    test("finds a MULTI_COLORS_1 step directly", () => {
+      const solver = makeSolver(MULTI_COLORS_PUZZLE);
+      const step = solver.getStep(SolutionType.MULTI_COLORS_1);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.MULTI_COLORS_1);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("MULTI_COLORS_1 step eliminations are valid", () => {
+      const solver = makeSolver(MULTI_COLORS_PUZZLE);
+      const step = solver.getStep(SolutionType.MULTI_COLORS_1)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step!.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.MULTI_COLORS_1)).not.toThrow();
+    });
+  });
+
+  describe("Multi-Colors – Type 2 sub-type", () => {
+    test("finds a MULTI_COLORS_2 step directly", () => {
+      const solver = makeSolver(MULTI_COLORS_2_PUZZLE);
+      const step = solver.getStep(SolutionType.MULTI_COLORS_2);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.MULTI_COLORS_2);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("MULTI_COLORS_2 step eliminations are valid", () => {
+      const solver = makeSolver(MULTI_COLORS_2_PUZZLE);
+      const step = solver.getStep(SolutionType.MULTI_COLORS_2)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step!.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.MULTI_COLORS_2)).not.toThrow();
     });
   });
 
@@ -913,6 +1016,94 @@ describe("FishSolver", () => {
     });
   });
 
+  // Franken fish: base = all rows OR all cols; cover may include boxes.
+  // Size ≤ 3 is searched (X-Wing=2, Swordfish=3); larger sizes return null.
+  describe("Franken X-Wing", () => {
+    test("search does not throw on SWORDFISH_REF puzzle after singles", () => {
+      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      expect(() => solver.getStep(SolutionType.FRANKEN_X_WING)).not.toThrow();
+    });
+
+    test("if a step is found its type is FRANKEN_X_WING", () => {
+      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.FRANKEN_X_WING);
+      if (step !== null) {
+        expect(step.type).toBe(SolutionType.FRANKEN_X_WING);
+        expect(step.candidatesToDelete.length).toBeGreaterThan(0);
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FRANKEN_X_WING)).not.toThrow();
+    });
+  });
+
+  describe("Franken Swordfish", () => {
+    test("search does not throw on SWORDFISH_REF puzzle after singles", () => {
+      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      expect(() => solver.getStep(SolutionType.FRANKEN_SWORDFISH)).not.toThrow();
+    });
+
+    test("if a step is found its type is FRANKEN_SWORDFISH", () => {
+      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.FRANKEN_SWORDFISH);
+      if (step !== null) {
+        expect(step.type).toBe(SolutionType.FRANKEN_SWORDFISH);
+        expect(step.candidatesToDelete.length).toBeGreaterThan(0);
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FRANKEN_SWORDFISH)).not.toThrow();
+    });
+  });
+
+  // Mutant fish: base and cover may include rows, cols, and boxes.
+  // Size ≤ 3 is searched; larger sizes return null for performance.
+  describe("Mutant X-Wing", () => {
+    test("search does not throw on SWORDFISH_REF puzzle after singles", () => {
+      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      expect(() => solver.getStep(SolutionType.MUTANT_X_WING)).not.toThrow();
+    });
+
+    test("if a step is found its type is MUTANT_X_WING", () => {
+      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.MUTANT_X_WING);
+      if (step !== null) {
+        expect(step.type).toBe(SolutionType.MUTANT_X_WING);
+        expect(step.candidatesToDelete.length).toBeGreaterThan(0);
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.MUTANT_X_WING)).not.toThrow();
+    });
+  });
+
+  // Kraken fish: not yet implemented — always returns null.
+  describe("Kraken Fish", () => {
+    test("returns null (not yet implemented)", () => {
+      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.KRAKEN_FISH);
+      expect(step).toBeNull();
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.KRAKEN_FISH)).not.toThrow();
+    });
+  });
+
 });
 
 // -- AlsSolver ---------------------------------------------------------------
@@ -978,16 +1169,16 @@ describe("AlsSolver", () => {
     test("finds a step after singles advancement", () => {
       const solver = makeSolver(SWORDFISH_REF_PUZZLE);
       advanceTechniques(solver, SINGLES);
-      const step = solver.getStep(SolutionType.ALS_CHAIN);
+      const step = solver.getStep(SolutionType.ALS_XY_CHAIN);
       expect(step).not.toBeNull();
-      expect(step!.type).toBe(SolutionType.ALS_CHAIN);
+      expect(step!.type).toBe(SolutionType.ALS_XY_CHAIN);
       expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
     });
 
     test("step eliminations are valid", () => {
       const solver = makeSolver(SWORDFISH_REF_PUZZLE);
       advanceTechniques(solver, SINGLES);
-      const step = solver.getStep(SolutionType.ALS_CHAIN)!;
+      const step = solver.getStep(SolutionType.ALS_XY_CHAIN)!;
       const { values, candidates } = (solver as any).sudoku as Sudoku2;
       for (const { index, value } of step.candidatesToDelete) {
         expect(values[index]).toBe(0);
@@ -997,7 +1188,7 @@ describe("AlsSolver", () => {
 
     test("search does not throw on easy puzzle", () => {
       const solver = makeSolver(EASY_PUZZLE);
-      expect(() => solver.getStep(SolutionType.ALS_CHAIN)).not.toThrow();
+      expect(() => solver.getStep(SolutionType.ALS_XY_CHAIN)).not.toThrow();
     });
   });
 
@@ -1212,6 +1403,36 @@ describe("TablingSolver", () => {
     test("search does not throw on easy puzzle", () => {
       const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.FORCING_NET_VERITY)).not.toThrow();
+    });
+  });
+
+  // GROUPED_NICE_LOOP searches for nice loops using group nodes.
+  // We verify safety (no crash) and type correctness when a step is found.
+  describe("Grouped Nice Loop", () => {
+    test("search does not throw on ALS_REF_PUZZLE", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      expect(() => solver.getStep(SolutionType.GROUPED_NICE_LOOP)).not.toThrow();
+    });
+
+    test("if a step is found its type is a GROUPED variant", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.GROUPED_NICE_LOOP);
+      if (step !== null) {
+        expect([
+          SolutionType.GROUPED_NICE_LOOP,
+          SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP,
+          SolutionType.GROUPED_CONTINUOUS_NICE_LOOP,
+          SolutionType.GROUPED_AIC,
+        ]).toContain(step.type);
+        expect(step.candidatesToDelete.length + step.placements.length).toBeGreaterThan(0);
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.GROUPED_NICE_LOOP)).not.toThrow();
     });
   });
 
