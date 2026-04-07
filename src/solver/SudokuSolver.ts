@@ -138,8 +138,10 @@ const STEP_BASE_SCORES: Partial<Record<string, number>> = {
   [SolutionType.BUG_PLUS_1]:              100,
   [SolutionType.SKYSCRAPER]:              130,
   [SolutionType.TWO_STRING_KITE]:         150,
+  [SolutionType.DUAL_TWO_STRING_KITE]:    150,
   [SolutionType.TURBOT_FISH]:             120,
   [SolutionType.EMPTY_RECTANGLE]:         120,
+  [SolutionType.DUAL_EMPTY_RECTANGLE]:    120,
   [SolutionType.W_WING]:                  150,
   [SolutionType.XY_WING]:                 160,
   [SolutionType.XYZ_WING]:                180,
@@ -371,8 +373,10 @@ export class SudokuSolver extends AbstractSolver {
 
       case SolutionType.SKYSCRAPER:
       case SolutionType.TWO_STRING_KITE:
+      case SolutionType.DUAL_TWO_STRING_KITE:
       case SolutionType.TURBOT_FISH:
       case SolutionType.EMPTY_RECTANGLE:
+      case SolutionType.DUAL_EMPTY_RECTANGLE:
         return this._sdp;
 
       case SolutionType.XY_WING:

@@ -41,6 +41,7 @@ const JELLYFISH_PUZZLE       = "654020071200107546001456002127630450006501207509
 const SQUIRMBAG_PUZZLE       = "900000561006010793710096248600021479000000005000040006420058617507102004001000052";
 const FINNED_SW_PUZZLE       = "000000000904000500020030040200070030060000010090060007040090020007000608000000000";
 const ER_DIRECT_PUZZLE       = "724956138168423597935718624500300810040081750081070240013000072000100085050007061";
+const DUAL_SDP_PUZZLE        = "000030090000200001050900000000000000102080406080500020075000000401006003000004060";
 const ALS_REF_PUZZLE         = "100000000000403060007800900000090002000700030006080000000000000009060000600009010";
 const BUG_PLUS_1_PUZZLE      = "849325617732800945561700328493278561157030892286000473978002134314987256625003789";
 const SUE_DE_COQ_PUZZLE      = "003006700000091003060003059780254301000317082231689475608132000320470006000960230";
@@ -208,6 +209,64 @@ describe("SingleDigitPatternSolver", () => {
     test("search does not throw on easy puzzle", () => {
       const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.EMPTY_RECTANGLE)).not.toThrow();
+    });
+  });
+
+  // DUAL_TWO_STRING_KITE fires on DUAL_SDP_PUZZLE after SINGLES advancement.
+  describe("Dual Two-String Kite", () => {
+    test("finds a step after SINGLES advancement", () => {
+      const solver = makeSolver(DUAL_SDP_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.DUAL_TWO_STRING_KITE);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.DUAL_TWO_STRING_KITE);
+      expect(step!.candidatesToDelete.length).toBeGreaterThanOrEqual(2);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(DUAL_SDP_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.DUAL_TWO_STRING_KITE)!;
+      if (!step) return;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.DUAL_TWO_STRING_KITE)).not.toThrow();
+    });
+  });
+
+  // DUAL_EMPTY_RECTANGLE fires on DUAL_SDP_PUZZLE after SINGLES advancement.
+  describe("Dual Empty Rectangle", () => {
+    test("finds a step after SINGLES advancement", () => {
+      const solver = makeSolver(DUAL_SDP_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.DUAL_EMPTY_RECTANGLE);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.DUAL_EMPTY_RECTANGLE);
+      expect(step!.candidatesToDelete.length).toBeGreaterThanOrEqual(2);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(DUAL_SDP_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.DUAL_EMPTY_RECTANGLE)!;
+      if (!step) return;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.DUAL_EMPTY_RECTANGLE)).not.toThrow();
     });
   });
 
