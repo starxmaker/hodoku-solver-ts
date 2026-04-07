@@ -69,6 +69,8 @@ export class SimpleSolver extends AbstractSolver {
       case SolutionType.FULL_HOUSE:          return this._findFullHouse();
       case SolutionType.NAKED_SINGLE:        return this._findNakedSingle();
       case SolutionType.HIDDEN_SINGLE:       return this._findHiddenSingle();
+      case SolutionType.LOCKED_PAIR:         return this._findNakedSubset(2, true);
+      case SolutionType.LOCKED_TRIPLE:        return this._findNakedSubset(3, true);
       case SolutionType.LOCKED_CANDIDATES_1: return this._findLC1();
       case SolutionType.LOCKED_CANDIDATES_2: return this._findLC2();
       case SolutionType.NAKED_PAIR:          return this._findNakedSubset(2);
@@ -229,11 +231,15 @@ export class SimpleSolver extends AbstractSolver {
   // Naked Subset (Pair / Triple / Quad)                                 //
   // ------------------------------------------------------------------ //
 
-  private _findNakedSubset(n: number): SolutionStep | null {
+  private _findNakedSubset(n: number, locked = false): SolutionStep | null {
     const typeMap: Record<number, typeof SolutionType[keyof typeof SolutionType]> = {
       2: SolutionType.NAKED_PAIR,
       3: SolutionType.NAKED_TRIPLE,
       4: SolutionType.NAKED_QUADRUPLE,
+    };
+    const lockedTypeMap: Record<number, typeof SolutionType[keyof typeof SolutionType]> = {
+      2: SolutionType.LOCKED_PAIR,
+      3: SolutionType.LOCKED_TRIPLE,
     };
     const HOUSES = Sudoku2.HOUSES;
 
@@ -307,15 +313,13 @@ export class SimpleSolver extends AbstractSolver {
 
         if (toDelete.length === 0) continue;
 
-        // Skip LOCKED subsets when searching for NAKED subsets.
-        // Locked = deletions in BOTH primary (block/row) AND secondary (line/box),
-        // with cells aligned to that secondary constraint, for size < 4.
-        // Mirrors Java: if isLocked -> cache, don't return for nakedOnly=true search.
-        if (n < 4 && secondaryIdx >= 0 && primaryDels && secondaryDels) {
-          continue; // locked subset — skip
-        }
+        // LOCKED subset: deletions in BOTH primary and secondary constraint, size < 4.
+        // Mirrors Java createSubsetStep isLocked logic.
+        const isLocked = n < 4 && secondaryIdx >= 0 && primaryDels && secondaryDels;
+        if (isLocked !== locked) continue;
 
-        return { type: typeMap[n], placements: [], candidatesToDelete: toDelete };
+        const stepType = locked ? lockedTypeMap[n] : typeMap[n];
+        return { type: stepType, placements: [], candidatesToDelete: toDelete };
       }
     }
     return null;

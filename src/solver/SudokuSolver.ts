@@ -44,6 +44,8 @@ const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
   SolutionType.FULL_HOUSE,
   SolutionType.NAKED_SINGLE,
   SolutionType.HIDDEN_SINGLE,
+  SolutionType.LOCKED_PAIR,
+  SolutionType.LOCKED_TRIPLE,
   SolutionType.LOCKED_CANDIDATES_1,
   SolutionType.LOCKED_CANDIDATES_2,
   SolutionType.NAKED_PAIR,
@@ -106,6 +108,8 @@ const STEP_BASE_SCORES: Partial<Record<string, number>> = {
   [SolutionType.FULL_HOUSE]:              4,
   [SolutionType.NAKED_SINGLE]:            4,
   [SolutionType.HIDDEN_SINGLE]:           14,
+  [SolutionType.LOCKED_PAIR]:             40,
+  [SolutionType.LOCKED_TRIPLE]:           60,
   [SolutionType.LOCKED_CANDIDATES_1]:     50,
   [SolutionType.LOCKED_CANDIDATES_2]:     50,
   [SolutionType.NAKED_PAIR]:              60,
@@ -309,6 +313,8 @@ export class SudokuSolver extends AbstractSolver {
       case SolutionType.FULL_HOUSE:
       case SolutionType.NAKED_SINGLE:
       case SolutionType.HIDDEN_SINGLE:
+      case SolutionType.LOCKED_PAIR:
+      case SolutionType.LOCKED_TRIPLE:
       case SolutionType.LOCKED_CANDIDATES_1:
       case SolutionType.LOCKED_CANDIDATES_2:
       case SolutionType.NAKED_PAIR:

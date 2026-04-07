@@ -33,6 +33,10 @@ export const SolutionType = {
   HIDDEN_SINGLE: "HIDDEN_SINGLE",
   NAKED_SINGLE: "NAKED_SINGLE",
 
+  // Locked subsets (naked pair/triple confined to a box+line intersection)
+  LOCKED_PAIR: "LOCKED_PAIR",
+  LOCKED_TRIPLE: "LOCKED_TRIPLE",
+
   // Locked candidates
   LOCKED_CANDIDATES_1: "LOCKED_CANDIDATES_1",
   LOCKED_CANDIDATES_2: "LOCKED_CANDIDATES_2",

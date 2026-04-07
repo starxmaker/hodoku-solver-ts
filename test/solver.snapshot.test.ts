@@ -146,11 +146,11 @@ describe("SudokuSolver — difficulty rating", () => {
     expect(r.score).toBe(196);
   });
 
-  test("naked-pair puzzle: solved=true, difficulty=EASY, score=298", async () => {
+  test("naked-pair puzzle: solved=true, difficulty=EASY, score=238", async () => {
     const r = await SudokuSolver.rate(P.NAKED_PAIR_PUZZLE);
     expect(r.solved).toBe(true);
     expect(r.difficulty).toBe("EASY");
-    expect(r.score).toBe(298);
+    expect(r.score).toBe(238);
   });
 
   test("als-xz puzzle: solved=true, difficulty=EASY, score=496", async () => {
