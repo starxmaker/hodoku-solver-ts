@@ -42,6 +42,8 @@ const SQUIRMBAG_PUZZLE       = "900000561006010793710096248600021479000000005000
 const FINNED_SW_PUZZLE       = "000000000904000500020030040200070030060000010090060007040090020007000608000000000";
 const ER_DIRECT_PUZZLE       = "724956138168423597935718624500300810040081750081070240013000072000100085050007061";
 const DUAL_SDP_PUZZLE        = "000030090000200001050900000000000000102080406080500020075000000401006003000004060";
+const X_WING_PUZZLE          = "000001008700030009020000061080009003001040900900300020240000080600090005100600000";
+const FINNED_X_WING_PUZZLE   = "030000080200050000000906000000400903008000500106003000000805000000090008050000030";
 const ALS_REF_PUZZLE         = "100000000000403060007800900000090002000700030006080000000000000009060000600009010";
 const BUG_PLUS_1_PUZZLE      = "849325617732800945561700328493278561157030892286000473978002134314987256625003789";
 const SUE_DE_COQ_PUZZLE      = "003006700000091003060003059780254301000317082231689475608132000320470006000960230";
@@ -393,25 +395,53 @@ describe("ChainSolver", () => {
   });
 
   describe("X-Chain", () => {
-    test("search does not throw on easy puzzle", () => {
-      const solver = makeSolver(EASY_PUZZLE);
-      expect(() => solver.getStep(SolutionType.X_CHAIN)).not.toThrow();
+    // X_CHAIN fires on X_CHAIN_PUZZLE at raw state.
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(X_CHAIN_PUZZLE);
+      const step = solver.getStep(SolutionType.X_CHAIN);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.X_CHAIN);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
     });
 
-    test("search does not throw on x-chain puzzle", () => {
+    test("step eliminations are valid", () => {
       const solver = makeSolver(X_CHAIN_PUZZLE);
+      const step = solver.getStep(SolutionType.X_CHAIN)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.X_CHAIN)).not.toThrow();
     });
   });
 
   describe("XY-Chain", () => {
-    test("search does not throw on easy puzzle", () => {
-      const solver = makeSolver(EASY_PUZZLE);
-      expect(() => solver.getStep(SolutionType.XY_CHAIN)).not.toThrow();
+    // XY_CHAIN fires on SQUIRMBAG_PUZZLE at raw state.
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SQUIRMBAG_PUZZLE);
+      const step = solver.getStep(SolutionType.XY_CHAIN);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.XY_CHAIN);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
     });
 
-    test("search does not throw on xy-chain puzzle", () => {
-      const solver = makeSolver(XY_CHAIN_PUZZLE);
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SQUIRMBAG_PUZZLE);
+      const step = solver.getStep(SolutionType.XY_CHAIN)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.XY_CHAIN)).not.toThrow();
     });
   });
@@ -559,11 +589,361 @@ describe("FishSolver", () => {
     });
   });
 
+  // X_WING fires on SWORDFISH_REF_PUZZLE at raw state.
+  describe("X-Wing", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.X_WING);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.X_WING);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.X_WING)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.X_WING)).not.toThrow();
+    });
+  });
+
+  // WHALE fires on SQUIRMBAG_PUZZLE at raw state.
+  describe("Whale", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SQUIRMBAG_PUZZLE);
+      const step = solver.getStep(SolutionType.WHALE);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.WHALE);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SQUIRMBAG_PUZZLE);
+      const step = solver.getStep(SolutionType.WHALE)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.WHALE)).not.toThrow();
+    });
+  });
+
+  // No puzzle with a Leviathan step was found — smoke test only.
+  describe("Leviathan", () => {
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.LEVIATHAN)).not.toThrow();
+    });
+  });
+
+  // FINNED_X_WING fires on FINNED_X_WING_PUZZLE after singles advancement.
+  describe("Finned X-Wing", () => {
+    test("finds a step after singles advancement", () => {
+      const solver = makeSolver(FINNED_X_WING_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.FINNED_X_WING);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.FINNED_X_WING);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(FINNED_X_WING_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.FINNED_X_WING)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FINNED_X_WING)).not.toThrow();
+    });
+  });
+
+  // SASHIMI_X_WING fires on FINNED_X_WING_PUZZLE at raw state.
+  describe("Sashimi X-Wing", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(FINNED_X_WING_PUZZLE);
+      const step = solver.getStep(SolutionType.SASHIMI_X_WING);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.SASHIMI_X_WING);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(FINNED_X_WING_PUZZLE);
+      const step = solver.getStep(SolutionType.SASHIMI_X_WING)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.SASHIMI_X_WING)).not.toThrow();
+    });
+  });
+
+  // SASHIMI_SWORDFISH fires on JELLYFISH_PUZZLE at raw state.
+  describe("Sashimi Swordfish", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(JELLYFISH_PUZZLE);
+      const step = solver.getStep(SolutionType.SASHIMI_SWORDFISH);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.SASHIMI_SWORDFISH);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(JELLYFISH_PUZZLE);
+      const step = solver.getStep(SolutionType.SASHIMI_SWORDFISH)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.SASHIMI_SWORDFISH)).not.toThrow();
+    });
+  });
+
+  // SASHIMI_JELLYFISH fires on JELLYFISH_PUZZLE at raw state.
+  describe("Sashimi Jellyfish", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(JELLYFISH_PUZZLE);
+      const step = solver.getStep(SolutionType.SASHIMI_JELLYFISH);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.SASHIMI_JELLYFISH);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(JELLYFISH_PUZZLE);
+      const step = solver.getStep(SolutionType.SASHIMI_JELLYFISH)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.SASHIMI_JELLYFISH)).not.toThrow();
+    });
+  });
+
+  // FINNED_SQUIRMBAG fires on SQUIRMBAG_PUZZLE at raw state.
+  describe("Finned Squirmbag", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SQUIRMBAG_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_SQUIRMBAG);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.FINNED_SQUIRMBAG);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SQUIRMBAG_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_SQUIRMBAG)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FINNED_SQUIRMBAG)).not.toThrow();
+    });
+  });
+
+  // SASHIMI_SQUIRMBAG fires on JELLYFISH_PUZZLE at raw state.
+  describe("Sashimi Squirmbag", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(JELLYFISH_PUZZLE);
+      const step = solver.getStep(SolutionType.SASHIMI_SQUIRMBAG);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.SASHIMI_SQUIRMBAG);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(JELLYFISH_PUZZLE);
+      const step = solver.getStep(SolutionType.SASHIMI_SQUIRMBAG)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.SASHIMI_SQUIRMBAG)).not.toThrow();
+    });
+  });
+
+  // FINNED_WHALE fires on ALS_REF_PUZZLE at raw state.
+  describe("Finned Whale", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_WHALE);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.FINNED_WHALE);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_WHALE)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FINNED_WHALE)).not.toThrow();
+    });
+  });
+
+  // SASHIMI_WHALE fires on JELLYFISH_PUZZLE at raw state.
+  describe("Sashimi Whale", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(JELLYFISH_PUZZLE);
+      const step = solver.getStep(SolutionType.SASHIMI_WHALE);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.SASHIMI_WHALE);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(JELLYFISH_PUZZLE);
+      const step = solver.getStep(SolutionType.SASHIMI_WHALE)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.SASHIMI_WHALE)).not.toThrow();
+    });
+  });
+
+  // FINNED_LEVIATHAN fires on X_CHAIN_PUZZLE after singles advancement.
+  describe("Finned Leviathan", () => {
+    test("finds a step after singles advancement", () => {
+      const solver = makeSolver(X_CHAIN_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.FINNED_LEVIATHAN);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.FINNED_LEVIATHAN);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(X_CHAIN_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.FINNED_LEVIATHAN)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FINNED_LEVIATHAN)).not.toThrow();
+    });
+  });
+
+  // SASHIMI_LEVIATHAN fires on JELLYFISH_PUZZLE at raw state.
+  describe("Sashimi Leviathan", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(JELLYFISH_PUZZLE);
+      const step = solver.getStep(SolutionType.SASHIMI_LEVIATHAN);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.SASHIMI_LEVIATHAN);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(JELLYFISH_PUZZLE);
+      const step = solver.getStep(SolutionType.SASHIMI_LEVIATHAN)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.SASHIMI_LEVIATHAN)).not.toThrow();
+    });
+  });
+
 });
 
 // -- AlsSolver ---------------------------------------------------------------
 
 describe("AlsSolver", () => {
+
+  // ALS_XZ fires on ALS_REF_PUZZLE at raw state.
+  describe("ALS-XZ", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.ALS_XZ);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.ALS_XZ);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      const step = solver.getStep(SolutionType.ALS_XZ)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.ALS_XZ)).not.toThrow();
+    });
+  });
 
   // ALS_XY_WING fires on ALS_REF_PUZZLE after singles advancement.
   describe("ALS-XY-Wing", () => {
@@ -656,13 +1036,18 @@ describe("AlsSolver", () => {
 describe("TablingSolver", () => {
 
   // NICE_LOOP fires on ALS_REF_PUZZLE after singles advancement.
+  // The returned step type is a sub-type (DNL or AIC) — accept any tabling type.
   describe("Nice Loop", () => {
     test("finds a step after singles advancement", () => {
       const solver = makeSolver(ALS_REF_PUZZLE);
       advanceTechniques(solver, SINGLES);
       const step = solver.getStep(SolutionType.NICE_LOOP);
       expect(step).not.toBeNull();
-      expect(step!.type).toBe(SolutionType.NICE_LOOP);
+      expect([
+        SolutionType.DISCONTINUOUS_NICE_LOOP,
+        SolutionType.CONTINUOUS_NICE_LOOP,
+        SolutionType.AIC,
+      ]).toContain(step!.type);
       expect(
         step!.candidatesToDelete.length + step!.placements.length
       ).toBeGreaterThan(0);
@@ -674,14 +1059,56 @@ describe("TablingSolver", () => {
     });
   });
 
+  // DISCONTINUOUS_NICE_LOOP is a sub-type obtained via getStep(NICE_LOOP).
+  describe("Discontinuous Nice Loop (sub-type)", () => {
+    test("getStep(DISCONTINUOUS_NICE_LOOP) returns a DNL or AIC step", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.DISCONTINUOUS_NICE_LOOP);
+      expect(step).not.toBeNull();
+      expect([
+        SolutionType.DISCONTINUOUS_NICE_LOOP,
+        SolutionType.AIC,
+      ]).toContain(step!.type);
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.DISCONTINUOUS_NICE_LOOP)).not.toThrow();
+    });
+  });
+
+  // AIC is a sub-type delegating to the same nice-loop search.
+  describe("AIC (sub-type)", () => {
+    test("getStep(AIC) returns a DNL or AIC step", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.AIC);
+      expect(step).not.toBeNull();
+      expect([
+        SolutionType.DISCONTINUOUS_NICE_LOOP,
+        SolutionType.AIC,
+      ]).toContain(step!.type);
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.AIC)).not.toThrow();
+    });
+  });
+
   // FORCING_CHAIN fires on ALS_REF_PUZZLE after singles advancement.
+  // The returned step type is a sub-type (contradiction or verity).
   describe("Forcing Chain", () => {
     test("finds a step after singles advancement", () => {
       const solver = makeSolver(ALS_REF_PUZZLE);
       advanceTechniques(solver, SINGLES);
       const step = solver.getStep(SolutionType.FORCING_CHAIN);
       expect(step).not.toBeNull();
-      expect(step!.type).toBe(SolutionType.FORCING_CHAIN);
+      expect([
+        SolutionType.FORCING_CHAIN_CONTRADICTION,
+        SolutionType.FORCING_CHAIN_VERITY,
+      ]).toContain(step!.type);
       expect(
         step!.candidatesToDelete.length + step!.placements.length
       ).toBeGreaterThan(0);
@@ -693,14 +1120,54 @@ describe("TablingSolver", () => {
     });
   });
 
+  describe("Forcing Chain Contradiction (sub-type)", () => {
+    test("getStep(FORCING_CHAIN_CONTRADICTION) returns a contradiction or verity step", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.FORCING_CHAIN_CONTRADICTION);
+      expect(step).not.toBeNull();
+      expect([
+        SolutionType.FORCING_CHAIN_CONTRADICTION,
+        SolutionType.FORCING_CHAIN_VERITY,
+      ]).toContain(step!.type);
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FORCING_CHAIN_CONTRADICTION)).not.toThrow();
+    });
+  });
+
+  describe("Forcing Chain Verity (sub-type)", () => {
+    test("getStep(FORCING_CHAIN_VERITY) returns a contradiction or verity step", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.FORCING_CHAIN_VERITY);
+      expect(step).not.toBeNull();
+      expect([
+        SolutionType.FORCING_CHAIN_CONTRADICTION,
+        SolutionType.FORCING_CHAIN_VERITY,
+      ]).toContain(step!.type);
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FORCING_CHAIN_VERITY)).not.toThrow();
+    });
+  });
+
   // FORCING_NET fires on ALS_REF_PUZZLE after singles advancement.
+  // The returned step type is a net sub-type (contradiction or verity).
   describe("Forcing Net", () => {
     test("finds a step after singles advancement", () => {
       const solver = makeSolver(ALS_REF_PUZZLE);
       advanceTechniques(solver, SINGLES);
       const step = solver.getStep(SolutionType.FORCING_NET);
       expect(step).not.toBeNull();
-      expect(step!.type).toBe(SolutionType.FORCING_NET);
+      expect([
+        SolutionType.FORCING_NET_CONTRADICTION,
+        SolutionType.FORCING_NET_VERITY,
+      ]).toContain(step!.type);
       expect(
         step!.candidatesToDelete.length + step!.placements.length
       ).toBeGreaterThan(0);
@@ -709,6 +1176,42 @@ describe("TablingSolver", () => {
     test("search does not throw on easy puzzle", () => {
       const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.FORCING_NET)).not.toThrow();
+    });
+  });
+
+  describe("Forcing Net Contradiction (sub-type)", () => {
+    test("getStep(FORCING_NET_CONTRADICTION) returns a net step", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.FORCING_NET_CONTRADICTION);
+      expect(step).not.toBeNull();
+      expect([
+        SolutionType.FORCING_NET_CONTRADICTION,
+        SolutionType.FORCING_NET_VERITY,
+      ]).toContain(step!.type);
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FORCING_NET_CONTRADICTION)).not.toThrow();
+    });
+  });
+
+  describe("Forcing Net Verity (sub-type)", () => {
+    test("getStep(FORCING_NET_VERITY) returns a net step", () => {
+      const solver = makeSolver(ALS_REF_PUZZLE);
+      advanceTechniques(solver, SINGLES);
+      const step = solver.getStep(SolutionType.FORCING_NET_VERITY);
+      expect(step).not.toBeNull();
+      expect([
+        SolutionType.FORCING_NET_CONTRADICTION,
+        SolutionType.FORCING_NET_VERITY,
+      ]).toContain(step!.type);
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FORCING_NET_VERITY)).not.toThrow();
     });
   });
 
@@ -1072,6 +1575,66 @@ describe("MiscellaneousSolver", () => {
     test("search does not throw on easy puzzle", () => {
       const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.SUE_DE_COQ)).not.toThrow();
+    });
+  });
+
+});
+
+// -- TemplateSolver -----------------------------------------------------------
+
+describe("TemplateSolver", () => {
+
+  describe("Template Set", () => {
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.TEMPLATE_SET)).not.toThrow();
+    });
+
+    test("search does not throw on swordfish puzzle", () => {
+      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+      expect(() => solver.getStep(SolutionType.TEMPLATE_SET)).not.toThrow();
+    });
+  });
+
+  describe("Template Delete", () => {
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.TEMPLATE_DEL)).not.toThrow();
+    });
+
+    test("search does not throw on swordfish puzzle", () => {
+      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+      expect(() => solver.getStep(SolutionType.TEMPLATE_DEL)).not.toThrow();
+    });
+  });
+
+});
+
+// -- BruteForceSolver ---------------------------------------------------------
+
+describe("BruteForceSolver", () => {
+
+  describe("Brute Force", () => {
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.BRUTE_FORCE)).not.toThrow();
+    });
+
+    test("search does not throw on swordfish puzzle", () => {
+      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+      expect(() => solver.getStep(SolutionType.BRUTE_FORCE)).not.toThrow();
+    });
+  });
+
+  describe("Incomplete", () => {
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.INCOMPLETE)).not.toThrow();
+    });
+
+    test("search does not throw on swordfish puzzle", () => {
+      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+      expect(() => solver.getStep(SolutionType.INCOMPLETE)).not.toThrow();
     });
   });
 
