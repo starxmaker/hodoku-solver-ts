@@ -49,6 +49,8 @@ const FINNED_X_WING_PUZZLE   = "030000080200050000000906000000400903008000500106
 const ALS_REF_PUZZLE         = "100000000000403060007800900000090002000700030006080000000000000009060000600009010";
 const BUG_PLUS_1_PUZZLE      = "849325617732800945561700328493278561157030892286000473978002134314987256625003789";
 const SUE_DE_COQ_PUZZLE      = "003006700000091003060003059780254301000317082231689475608132000320470006000960230";
+// HoDoKu showcase puzzle — fires Franken and Mutant fish (all sizes ≤ 3) at raw state.
+const SHOWCASE_PUZZLE        = "008037000030080002040950003175090024403000600680040075300064010800000000000810500";
 
 // -- Helpers ---------------------------------------------------------------
 
@@ -1019,19 +1021,21 @@ describe("FishSolver", () => {
   // Franken fish: base = all rows OR all cols; cover may include boxes.
   // Size ≤ 3 is searched (X-Wing=2, Swordfish=3); larger sizes return null.
   describe("Franken X-Wing", () => {
-    test("search does not throw on SWORDFISH_REF puzzle after singles", () => {
-      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
-      advanceTechniques(solver, SINGLES);
-      expect(() => solver.getStep(SolutionType.FRANKEN_X_WING)).not.toThrow();
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FRANKEN_X_WING);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.FRANKEN_X_WING);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
     });
 
-    test("if a step is found its type is FRANKEN_X_WING", () => {
-      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
-      advanceTechniques(solver, SINGLES);
-      const step = solver.getStep(SolutionType.FRANKEN_X_WING);
-      if (step !== null) {
-        expect(step.type).toBe(SolutionType.FRANKEN_X_WING);
-        expect(step.candidatesToDelete.length).toBeGreaterThan(0);
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FRANKEN_X_WING)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
       }
     });
 
@@ -1041,51 +1045,180 @@ describe("FishSolver", () => {
     });
   });
 
-  describe("Franken Swordfish", () => {
-    test("search does not throw on SWORDFISH_REF puzzle after singles", () => {
-      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
-      advanceTechniques(solver, SINGLES);
-      expect(() => solver.getStep(SolutionType.FRANKEN_SWORDFISH)).not.toThrow();
+  describe("Finned Franken X-Wing", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_FRANKEN_X_WING);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.FINNED_FRANKEN_X_WING);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
     });
 
-    test("if a step is found its type is FRANKEN_SWORDFISH", () => {
-      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
-      advanceTechniques(solver, SINGLES);
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_FRANKEN_X_WING)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FINNED_FRANKEN_X_WING)).not.toThrow();
+    });
+  });
+
+  describe("Franken Swordfish", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
       const step = solver.getStep(SolutionType.FRANKEN_SWORDFISH);
-      if (step !== null) {
-        expect(step.type).toBe(SolutionType.FRANKEN_SWORDFISH);
-        expect(step.candidatesToDelete.length).toBeGreaterThan(0);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.FRANKEN_SWORDFISH);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FRANKEN_SWORDFISH)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
       }
     });
 
     test("search does not throw on easy puzzle", () => {
       const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.FRANKEN_SWORDFISH)).not.toThrow();
+    });
+  });
+
+  describe("Finned Franken Swordfish", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_FRANKEN_SWORDFISH);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.FINNED_FRANKEN_SWORDFISH);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_FRANKEN_SWORDFISH)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FINNED_FRANKEN_SWORDFISH)).not.toThrow();
     });
   });
 
   // Mutant fish: base and cover may include rows, cols, and boxes.
   // Size ≤ 3 is searched; larger sizes return null for performance.
   describe("Mutant X-Wing", () => {
-    test("search does not throw on SWORDFISH_REF puzzle after singles", () => {
-      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
-      advanceTechniques(solver, SINGLES);
-      expect(() => solver.getStep(SolutionType.MUTANT_X_WING)).not.toThrow();
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.MUTANT_X_WING);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.MUTANT_X_WING);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
     });
 
-    test("if a step is found its type is MUTANT_X_WING", () => {
-      const solver = makeSolver(SWORDFISH_REF_PUZZLE);
-      advanceTechniques(solver, SINGLES);
-      const step = solver.getStep(SolutionType.MUTANT_X_WING);
-      if (step !== null) {
-        expect(step.type).toBe(SolutionType.MUTANT_X_WING);
-        expect(step.candidatesToDelete.length).toBeGreaterThan(0);
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.MUTANT_X_WING)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
       }
     });
 
     test("search does not throw on easy puzzle", () => {
       const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.MUTANT_X_WING)).not.toThrow();
+    });
+  });
+
+  describe("Finned Mutant X-Wing", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_MUTANT_X_WING);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.FINNED_MUTANT_X_WING);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_MUTANT_X_WING)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FINNED_MUTANT_X_WING)).not.toThrow();
+    });
+  });
+
+  describe("Mutant Swordfish", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.MUTANT_SWORDFISH);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.MUTANT_SWORDFISH);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.MUTANT_SWORDFISH)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.MUTANT_SWORDFISH)).not.toThrow();
+    });
+  });
+
+  describe("Finned Mutant Swordfish", () => {
+    test("finds a step on raw puzzle state", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_MUTANT_SWORDFISH);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.FINNED_MUTANT_SWORDFISH);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
+    });
+
+    test("step eliminations are valid", () => {
+      const solver = makeSolver(SHOWCASE_PUZZLE);
+      const step = solver.getStep(SolutionType.FINNED_MUTANT_SWORDFISH)!;
+      const { values, candidates } = (solver as any).sudoku as Sudoku2;
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(values[index]).toBe(0);
+        expect(candidates[index] & (1 << value)).toBeTruthy();
+      }
+    });
+
+    test("search does not throw on easy puzzle", () => {
+      const solver = makeSolver(EASY_PUZZLE);
+      expect(() => solver.getStep(SolutionType.FINNED_MUTANT_SWORDFISH)).not.toThrow();
     });
   });
 
