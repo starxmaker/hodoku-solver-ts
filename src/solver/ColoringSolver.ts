@@ -38,8 +38,12 @@ import { AbstractSolver } from "./AbstractSolver";
 export class ColoringSolver extends AbstractSolver {
   override getStep(type: SolutionType): SolutionStep | null {
     switch (type) {
-      case SolutionType.SIMPLE_COLORS: return this._findSimpleColors();
-      case SolutionType.MULTI_COLORS:  return this._findMultiColors();
+      case SolutionType.SIMPLE_COLORS:
+      case SolutionType.SIMPLE_COLORS_TRAP:
+      case SolutionType.SIMPLE_COLORS_WRAP:  return this._findSimpleColors(type);
+      case SolutionType.MULTI_COLORS:
+      case SolutionType.MULTI_COLORS_1:
+      case SolutionType.MULTI_COLORS_2:      return this._findMultiColors(type);
       default: return null;
     }
   }
@@ -94,7 +98,7 @@ export class ColoringSolver extends AbstractSolver {
 
   // ── Simple Colors ─────────────────────────────────────────────────────────
 
-  private _findSimpleColors(): SolutionStep | null {
+  private _findSimpleColors(requestedType: typeof SolutionType[keyof typeof SolutionType] = SolutionType.SIMPLE_COLORS): SolutionStep | null {
     const { values, candidates } = this.sudoku;
     const BUDDIES = Sudoku2.BUDDIES;
 
@@ -117,7 +121,8 @@ export class ColoringSolver extends AbstractSolver {
               .filter(c => values[c] === 0 && (candidates[c] & (1 << d)))
               .map(c => ({ index: c, value: d as Digit }));
             if (del.length) {
-              return { type: SolutionType.SIMPLE_COLORS, placements: [], candidatesToDelete: del };
+              if (requestedType === SolutionType.SIMPLE_COLORS_TRAP) continue;
+              return { type: SolutionType.SIMPLE_COLORS_WRAP, placements: [], candidatesToDelete: del };
             }
             void oppCells;
           }
@@ -133,8 +138,9 @@ export class ColoringSolver extends AbstractSolver {
           const seesC0 = c0.some(c => buddies.includes(c));
           const seesC1 = c1.some(c => buddies.includes(c));
           if (seesC0 && seesC1) {
+            if (requestedType === SolutionType.SIMPLE_COLORS_WRAP) continue;
             return {
-              type: SolutionType.SIMPLE_COLORS,
+              type: SolutionType.SIMPLE_COLORS_TRAP,
               placements: [],
               candidatesToDelete: [{ index: cell, value: d as Digit }],
             };
@@ -147,7 +153,7 @@ export class ColoringSolver extends AbstractSolver {
 
   // ── Multi-Colors ─────────────────────────────────────────────────────────
 
-  private _findMultiColors(): SolutionStep | null {
+  private _findMultiColors(requestedType: typeof SolutionType[keyof typeof SolutionType] = SolutionType.MULTI_COLORS): SolutionStep | null {
     const { values, candidates } = this.sudoku;
     const BUDDIES = Sudoku2.BUDDIES;
 
@@ -173,7 +179,8 @@ export class ColoringSolver extends AbstractSolver {
                   .filter(c => values[c] === 0 && (candidates[c] & (1 << d)))
                   .map(c => ({ index: c, value: d as Digit }));
                 if (del.length) {
-                  return { type: SolutionType.MULTI_COLORS, placements: [], candidatesToDelete: del };
+                  if (requestedType === SolutionType.MULTI_COLORS_1) continue;
+                  return { type: SolutionType.MULTI_COLORS_2, placements: [], candidatesToDelete: del };
                 }
               }
 
@@ -193,7 +200,8 @@ export class ColoringSolver extends AbstractSolver {
                   }
                 }
                 if (del.length) {
-                  return { type: SolutionType.MULTI_COLORS, placements: [], candidatesToDelete: del };
+                  if (requestedType === SolutionType.MULTI_COLORS_2) continue;
+                  return { type: SolutionType.MULTI_COLORS_1, placements: [], candidatesToDelete: del };
                 }
               }
             }
