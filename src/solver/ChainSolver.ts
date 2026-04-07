@@ -27,9 +27,11 @@ import { AbstractSolver } from "./AbstractSolver";
 
 // ---------------------------------------------------------------------------
 // ChainSolver — mirrors solver/ChainSolver.java
-// Handles: X-Chain, XY-Chain, Remote Pair, Turbot Fish.
+// Handles: X-Chain, XY-Chain, Remote Pair.
+// (Turbot Fish is handled by SingleDigitPatternSolver, matching the TS port's
+//  refactoring where single-digit patterns are kept together.)
 //
-// All four techniques search for alternating strong/weak chains of candidates.
+// All three techniques search for alternating strong/weak chains of candidates.
 // Strong link: digit d appears exactly twice in some house (only those two cells
 //              can be d → if one is false, the other must be true).
 // Weak link:   two cells share a house and both have d as candidate.
