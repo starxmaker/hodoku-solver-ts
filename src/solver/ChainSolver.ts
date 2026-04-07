@@ -99,7 +99,7 @@ export class ChainSolver extends AbstractSolver {
     const chain: number[] = [start];
     const visited = new Set<number>([start]);
 
-    const MAX_CHAIN = 12; // cap to avoid exponential blowup
+      const MAX_CHAIN = 20; // practical cap (Java uses 162; most puzzles need ≤20)
     const dfs = (cell: number, nextIsStrong: boolean): Candidate[] | null => {
       if (chain.length >= MAX_CHAIN) return null;
       if (nextIsStrong) {
@@ -186,7 +186,7 @@ export class ChainSolver extends AbstractSolver {
     biCells: number[], values: number[], candidates: number[],
     BUDDIES: readonly (readonly number[])[],
   ): Candidate[] | null {
-    if (chain.length >= 10) return null; // cap to avoid exponential blowup
+    if (chain.length >= 20) return null; // practical cap (Java uses 162; most puzzles need ≤20)
     // Look for a bivalue neighbour that has curD as a candidate
     for (const next of biCells) {
       if (visited.has(next)) continue;

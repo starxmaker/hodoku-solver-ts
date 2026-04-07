@@ -25,6 +25,9 @@ const MULTI_COLORS_2_PUZZLE  = "800000000003600000070090200060005300400050001000
 const REMOTE_PAIR_PUZZLE     = "000700080070050000000008030090000400002030900003000060080300000000010050060004000";
 const X_CHAIN_PUZZLE         = "800009040040003005000460700900030008700000006600080009009060000300700060060900008";
 const XY_CHAIN_PUZZLE        = "000060080060000050080090030000900310300000007075008000040070090050000040090030000";
+// Community-sourced puzzle known to contain an XY-Chain of 14 nodes (VladFein / SudokuWiki).
+// A chain this long exceeded the old cap of 10 nodes; requires the extended cap of 20.
+const XY_CHAIN_LONG_PUZZLE   = "000005008400000300000312060005600012040000300170000908000507600700000000092003000";
 const EASY_PUZZLE            = "003020600900305001001806400008102900700000008006708200002609500800203009005010300";
 
 // New puzzle strings for Phase 3 / Phase 4 solver techniques.
@@ -548,6 +551,18 @@ describe("ChainSolver", () => {
     test("search does not throw on easy puzzle", () => {
       const solver = makeSolver(EASY_PUZZLE);
       expect(() => solver.getStep(SolutionType.XY_CHAIN)).not.toThrow();
+    });
+
+    // The old cap (10 nodes) was raised to 20 to match Java behaviour.
+    // This puzzle is documented to contain 18 XY-Chains in its raw state,
+    // including one of 14 nodes (VladFein / SudokuWiki). Previously the
+    // cap of 10 would miss the longer variant.
+    test("finds XY-Chain on long-chain puzzle (cap raised 10→20)", () => {
+      const solver = makeSolver(XY_CHAIN_LONG_PUZZLE);
+      const step = solver.getStep(SolutionType.XY_CHAIN);
+      expect(step).not.toBeNull();
+      expect(step!.type).toBe(SolutionType.XY_CHAIN);
+      expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
     });
   });
 
