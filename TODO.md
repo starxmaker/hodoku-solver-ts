@@ -195,6 +195,11 @@ The following areas were audited and found equivalent to Java:
 | `TablingSolver` dispatch — NICE_LOOP, CONTINUOUS/DISCONTINUOUS_NICE_LOOP, AIC, GROUPED_* variants, FORCING_CHAIN/NET | ✅ |
 | `ALLOW_DUALS_AND_SIAMESE = false` — dual patterns never generated | ✅ |
 | ALS pair scanning direction — TS `ai < aj` + both-direction adj entries matches Java default | ✅ |
+| `Sudoku2._placeDigit` — removes placed digit from all buddy candidates | ✅ |
+| `AbstractSolver.doStep` — applies `setValue` for placements, `removeCandidate` for eliminations | ✅ |
+| `ColoringSolver` algorithm — WRAP/TRAP logic per component matches Java exactly | ✅ |
+| `WingSolver` algorithms — XY-Wing, XYZ-Wing, W-Wing (including `else-if` single-link constraint) match Java | ✅ |
+| `MiscellaneousSolver` SUE_DE_COQ algorithm — intersection subsets, line/block enumeration, allowed-cand mask, elimination formulas all match Java | ✅ |
 
 ---
 
@@ -332,6 +337,34 @@ Practical impact: TEMPLATE_SET and TEMPLATE_DEL are disabled in Java by default 
 **Fix:** After the initial filter loop, add an iterative removal pass: for template `t` of digit `j`, compute `andMask[k]` for all `k ≠ j` and remove `t` if `t ∩ andMask[k] ≠ ∅`. Recompute AND/OR masks after each round and repeat until stable.
 
 File: `src/solver/TemplateSolver.ts`
+
+---
+
+### H7 — SudokuSolver: difficulty rating uses only score thresholds; Java also uses per-technique level
+
+Java's `getHint()` loop does two things when a step is found:
+1. `score += stepConfig.getBaseScore()` — accumulates the step's score.
+2. `level = max(level, stepConfig.getDifficultyLevel())` — immediately promotes the puzzle's difficulty to at least the technique's configured level.
+
+After the loop, Java does an additional `while (score > level.maxScore) level = nextLevel` promotion.
+
+TS `solveWithRating()` does **only** the score-threshold promotion (post-loop). It has no per-technique level. This means:
+
+| Scenario | Java difficulty | TS difficulty |
+|---|---|---|
+| Puzzle needs FORCING_CHAIN, total score = 1200 | **EXTREME** (technique level = EXTREME) | HARD (1200 < 1600) |
+| Puzzle needs X_WING, total score = 400 | **HARD** (technique level = HARD) | EASY (400 < 800) |
+| Puzzle needs GROUPED_NICE_LOOP, score = 1500 | **UNFAIR** (technique level = UNFAIR) | HARD (1500 < 1600) |
+
+Any puzzle that requires a technique whose configured level is higher than what the cumulative score alone would imply will be rated at a lower difficulty by TS than by Java.
+
+**Most impactful case:** FORCING_CHAIN and FORCING_NET (level = EXTREME) — on puzzles with few steps these can produce EXTREME in Java but HARD in TS.
+
+**Fix:** Add a per-technique `difficultyLevel` to `STEP_BASE_SCORES` entries (or a separate lookup), and track `level = max(level, techniqueDifficultyLevel)` in `solveWithRating()`.
+
+File: `src/solver/SudokuSolver.ts`
+
+**Minor additional difference:** Java's `solve()` bails out early with `return false` if fewer than 10 cells are set (`(81 - unsolvedCellCount) < 10`). TS has no such guard and will attempt to solve any puzzle regardless of how few cells are given.
 
 ---
 
