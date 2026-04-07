@@ -59,6 +59,8 @@ const PHASE_0: SolutionType[] = [
   SolutionType.FULL_HOUSE,
   SolutionType.NAKED_SINGLE,
   SolutionType.HIDDEN_SINGLE,
+  SolutionType.LOCKED_PAIR,
+  SolutionType.LOCKED_TRIPLE,
   SolutionType.LOCKED_CANDIDATES_1,
   SolutionType.LOCKED_CANDIDATES_2,
   SolutionType.NAKED_PAIR,
