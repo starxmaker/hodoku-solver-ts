@@ -58,6 +58,8 @@ const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
   SolutionType.SWORDFISH,
   SolutionType.JELLYFISH,
   SolutionType.SQUIRMBAG,
+  SolutionType.WHALE,
+  SolutionType.LEVIATHAN,
   SolutionType.REMOTE_PAIR,
   SolutionType.SKYSCRAPER,
   SolutionType.TWO_STRING_KITE,
@@ -80,6 +82,8 @@ const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
   SolutionType.FINNED_SWORDFISH,
   SolutionType.FINNED_JELLYFISH,
   SolutionType.FINNED_SQUIRMBAG,
+  SolutionType.FINNED_WHALE,
+  SolutionType.FINNED_LEVIATHAN,
   SolutionType.SUE_DE_COQ,
   SolutionType.SIMPLE_COLORS,
   SolutionType.MULTI_COLORS,
@@ -122,6 +126,8 @@ const STEP_BASE_SCORES: Partial<Record<string, number>> = {
   [SolutionType.SWORDFISH]:               150,
   [SolutionType.JELLYFISH]:               160,
   [SolutionType.SQUIRMBAG]:               470,
+  [SolutionType.WHALE]:                   470,
+  [SolutionType.LEVIATHAN]:               470,
   [SolutionType.REMOTE_PAIR]:             110,
   [SolutionType.BUG_PLUS_1]:              100,
   [SolutionType.SKYSCRAPER]:              130,
@@ -144,6 +150,8 @@ const STEP_BASE_SCORES: Partial<Record<string, number>> = {
   [SolutionType.FINNED_SWORDFISH]:        200,
   [SolutionType.FINNED_JELLYFISH]:        250,
   [SolutionType.FINNED_SQUIRMBAG]:        470,
+  [SolutionType.FINNED_WHALE]:            470,
+  [SolutionType.FINNED_LEVIATHAN]:        470,
   [SolutionType.SUE_DE_COQ]:              250,
   [SolutionType.SIMPLE_COLORS]:           150,
   [SolutionType.MULTI_COLORS]:            200,
@@ -329,10 +337,14 @@ export class SudokuSolver extends AbstractSolver {
       case SolutionType.SWORDFISH:
       case SolutionType.JELLYFISH:
       case SolutionType.SQUIRMBAG:
+      case SolutionType.WHALE:
+      case SolutionType.LEVIATHAN:
       case SolutionType.FINNED_X_WING:
       case SolutionType.FINNED_SWORDFISH:
       case SolutionType.FINNED_JELLYFISH:
       case SolutionType.FINNED_SQUIRMBAG:
+      case SolutionType.FINNED_WHALE:
+      case SolutionType.FINNED_LEVIATHAN:
         return this._fish;
 
       case SolutionType.SKYSCRAPER:

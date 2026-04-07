@@ -217,6 +217,10 @@ function fishSize(type: typeof SolutionType[keyof typeof SolutionType]): number 
     case SolutionType.FINNED_JELLYFISH: return 4;
     case SolutionType.SQUIRMBAG:
     case SolutionType.FINNED_SQUIRMBAG: return 5;
+    case SolutionType.WHALE:
+    case SolutionType.FINNED_WHALE: return 6;
+    case SolutionType.LEVIATHAN:
+    case SolutionType.FINNED_LEVIATHAN: return 7;
     default: return 0;
   }
 }
@@ -225,7 +229,9 @@ function isFinnedType(type: typeof SolutionType[keyof typeof SolutionType]): boo
   return type === SolutionType.FINNED_X_WING ||
     type === SolutionType.FINNED_SWORDFISH ||
     type === SolutionType.FINNED_JELLYFISH ||
-    type === SolutionType.FINNED_SQUIRMBAG;
+    type === SolutionType.FINNED_SQUIRMBAG ||
+    type === SolutionType.FINNED_WHALE ||
+    type === SolutionType.FINNED_LEVIATHAN;
 }
 
 function* kCombos<T>(arr: T[], k: number, start = 0): Generator<T[]> {
