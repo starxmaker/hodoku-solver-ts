@@ -52,8 +52,9 @@ export class FishSolver extends AbstractSolver {
   override getStep(type: typeof SolutionType[keyof typeof SolutionType]): SolutionStep | null {
     const size = fishSize(type);
     if (size === 0) return null;
-    const finned = isFinnedType(type);
-    return this._findFish(size, finned, type);
+    const sashimi = isSashimiType(type);
+    const finned = isFinnedType(type) || sashimi;
+    return this._findFish(size, finned, sashimi, type);
   }
 
   // ------------------------------------------------------------------ //
@@ -62,13 +63,14 @@ export class FishSolver extends AbstractSolver {
   private _findFish(
     size: number,
     finned: boolean,
+    sashimi: boolean,
     type: typeof SolutionType[keyof typeof SolutionType]
   ): SolutionStep | null {
     for (let d = 1; d <= 9; d++) {
       // Try rows as base, cols as cover; then cols as base, rows as cover
       const step =
-        this._searchFish(d, size, finned, type, true) ||
-        this._searchFish(d, size, finned, type, false);
+        this._searchFish(d, size, finned, sashimi, type, true) ||
+        this._searchFish(d, size, finned, sashimi, type, false);
       if (step) return step;
     }
     return null;
@@ -78,6 +80,7 @@ export class FishSolver extends AbstractSolver {
     d: number,
     size: number,
     finned: boolean,
+    sashimi: boolean,
     type: typeof SolutionType[keyof typeof SolutionType],
     rowBase: boolean
   ): SolutionStep | null {
@@ -167,6 +170,18 @@ export class FishSolver extends AbstractSolver {
           const finBox = Sudoku2.box(finCells[0]);
           if (!finCells.every(f => Sudoku2.box(f) === finBox)) continue;
 
+          // Sashimi check: a finned fish is sashimi when at least one base
+          // line has ≤ 1 covered candidate (i.e. after removing fins it only
+          // has 0-1 cells in the cover columns).
+          let isSashimi = false;
+          for (const e of baseCombo) {
+            if (e.occ.filter(c => coverSet.has(c)).length <= 1) {
+              isSashimi = true;
+              break;
+            }
+          }
+          if (isSashimi !== sashimi) continue;
+
           // Get eliminations: cells that (a) the unfinned fish would delete
           //                               (b) see all fins
           const basicElims = this._basicFishElims(d, baseLines, coverCombo, rowBase);
@@ -210,17 +225,23 @@ export class FishSolver extends AbstractSolver {
 function fishSize(type: typeof SolutionType[keyof typeof SolutionType]): number {
   switch (type) {
     case SolutionType.X_WING:
-    case SolutionType.FINNED_X_WING: return 2;
+    case SolutionType.FINNED_X_WING:
+    case SolutionType.SASHIMI_X_WING: return 2;
     case SolutionType.SWORDFISH:
-    case SolutionType.FINNED_SWORDFISH: return 3;
+    case SolutionType.FINNED_SWORDFISH:
+    case SolutionType.SASHIMI_SWORDFISH: return 3;
     case SolutionType.JELLYFISH:
-    case SolutionType.FINNED_JELLYFISH: return 4;
+    case SolutionType.FINNED_JELLYFISH:
+    case SolutionType.SASHIMI_JELLYFISH: return 4;
     case SolutionType.SQUIRMBAG:
-    case SolutionType.FINNED_SQUIRMBAG: return 5;
+    case SolutionType.FINNED_SQUIRMBAG:
+    case SolutionType.SASHIMI_SQUIRMBAG: return 5;
     case SolutionType.WHALE:
-    case SolutionType.FINNED_WHALE: return 6;
+    case SolutionType.FINNED_WHALE:
+    case SolutionType.SASHIMI_WHALE: return 6;
     case SolutionType.LEVIATHAN:
-    case SolutionType.FINNED_LEVIATHAN: return 7;
+    case SolutionType.FINNED_LEVIATHAN:
+    case SolutionType.SASHIMI_LEVIATHAN: return 7;
     default: return 0;
   }
 }
@@ -232,6 +253,15 @@ function isFinnedType(type: typeof SolutionType[keyof typeof SolutionType]): boo
     type === SolutionType.FINNED_SQUIRMBAG ||
     type === SolutionType.FINNED_WHALE ||
     type === SolutionType.FINNED_LEVIATHAN;
+}
+
+function isSashimiType(type: typeof SolutionType[keyof typeof SolutionType]): boolean {
+  return type === SolutionType.SASHIMI_X_WING ||
+    type === SolutionType.SASHIMI_SWORDFISH ||
+    type === SolutionType.SASHIMI_JELLYFISH ||
+    type === SolutionType.SASHIMI_SQUIRMBAG ||
+    type === SolutionType.SASHIMI_WHALE ||
+    type === SolutionType.SASHIMI_LEVIATHAN;
 }
 
 function* kCombos<T>(arr: T[], k: number, start = 0): Generator<T[]> {

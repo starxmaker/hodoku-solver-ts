@@ -79,11 +79,17 @@ const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
   SolutionType.AVOIDABLE_RECTANGLE_2,
   SolutionType.BUG_PLUS_1,
   SolutionType.FINNED_X_WING,
+  SolutionType.SASHIMI_X_WING,
   SolutionType.FINNED_SWORDFISH,
+  SolutionType.SASHIMI_SWORDFISH,
   SolutionType.FINNED_JELLYFISH,
+  SolutionType.SASHIMI_JELLYFISH,
   SolutionType.FINNED_SQUIRMBAG,
+  SolutionType.SASHIMI_SQUIRMBAG,
   SolutionType.FINNED_WHALE,
+  SolutionType.SASHIMI_WHALE,
   SolutionType.FINNED_LEVIATHAN,
+  SolutionType.SASHIMI_LEVIATHAN,
   SolutionType.SUE_DE_COQ,
   SolutionType.SIMPLE_COLORS,
   SolutionType.MULTI_COLORS,
@@ -147,11 +153,17 @@ const STEP_BASE_SCORES: Partial<Record<string, number>> = {
   [SolutionType.AVOIDABLE_RECTANGLE_1]:   100,
   [SolutionType.AVOIDABLE_RECTANGLE_2]:   100,
   [SolutionType.FINNED_X_WING]:           130,
+  [SolutionType.SASHIMI_X_WING]:          150,
   [SolutionType.FINNED_SWORDFISH]:        200,
+  [SolutionType.SASHIMI_SWORDFISH]:       240,
   [SolutionType.FINNED_JELLYFISH]:        250,
+  [SolutionType.SASHIMI_JELLYFISH]:       260,
   [SolutionType.FINNED_SQUIRMBAG]:        470,
+  [SolutionType.SASHIMI_SQUIRMBAG]:       470,
   [SolutionType.FINNED_WHALE]:            470,
+  [SolutionType.SASHIMI_WHALE]:           470,
   [SolutionType.FINNED_LEVIATHAN]:        470,
+  [SolutionType.SASHIMI_LEVIATHAN]:       470,
   [SolutionType.SUE_DE_COQ]:              250,
   [SolutionType.SIMPLE_COLORS]:           150,
   [SolutionType.MULTI_COLORS]:            200,
@@ -345,6 +357,12 @@ export class SudokuSolver extends AbstractSolver {
       case SolutionType.FINNED_SQUIRMBAG:
       case SolutionType.FINNED_WHALE:
       case SolutionType.FINNED_LEVIATHAN:
+      case SolutionType.SASHIMI_X_WING:
+      case SolutionType.SASHIMI_SWORDFISH:
+      case SolutionType.SASHIMI_JELLYFISH:
+      case SolutionType.SASHIMI_SQUIRMBAG:
+      case SolutionType.SASHIMI_WHALE:
+      case SolutionType.SASHIMI_LEVIATHAN:
         return this._fish;
 
       case SolutionType.SKYSCRAPER:
