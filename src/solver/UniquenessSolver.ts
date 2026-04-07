@@ -53,6 +53,22 @@ export class UniquenessSolver extends AbstractSolver {
 
   private _findUR1(): SolutionStep | null {
     if (!this.sudoku.hasUniqueSolution()) return null;
+    // allowed[d-1][i] = 1 iff cell i is unsolved and no placed buddy holds value d.
+    // Mirrors getCandidatesAllowed() with allowUniquenessMissingCandidates=true.
+    const BUDDIES = Sudoku2.BUDDIES;
+    const allowed: Uint8Array[] = [];
+    for (let d = 1; d <= 9; d++) {
+      const arr = new Uint8Array(81);
+      for (let i = 0; i < 81; i++) {
+        if (this.sudoku.values[i] !== 0) continue;
+        let blocked = false;
+        for (const b of BUDDIES[i]) {
+          if (this.sudoku.values[b] === d) { blocked = true; break; }
+        }
+        if (!blocked) arr[i] = 1;
+      }
+      allowed.push(arr);
+    }
     for (let r1 = 0; r1 < 8; r1++) {
       for (let r2 = r1 + 1; r2 < 9; r2++) {
         for (let c1 = 0; c1 < 8; c1++) {
@@ -72,17 +88,16 @@ export class UniquenessSolver extends AbstractSolver {
                 const mask = (1 << a) | (1 << b);
                 if (!corners.every(i =>
                   this.sudoku.values[i] === 0 &&
-                  this.sudoku.isCandidate(i, a) &&
-                  this.sudoku.isCandidate(i, b)
+                  allowed[a - 1][i] !== 0 &&
+                  allowed[b - 1][i] !== 0
                 )) continue;
                 let twoOnly = 0;
                 let extraIndex = -1;
                 for (const i of corners) {
-                  const hasMask = (this.sudoku.candidates[i] & mask) === mask;
                   const hasExtra = (this.sudoku.candidates[i] & ~mask) !== 0;
-                  if (hasMask && !hasExtra) {
+                  if (!hasExtra) {
                     twoOnly++;
-                  } else if (hasMask && hasExtra) {
+                  } else {
                     extraIndex = i;
                   }
                 }
