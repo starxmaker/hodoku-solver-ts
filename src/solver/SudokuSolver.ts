@@ -182,6 +182,17 @@ const STEP_BASE_SCORES: Partial<Record<string, number>> = {
   [SolutionType.DEATH_BLOSSOM]:           360,
   [SolutionType.FORCING_CHAIN]:           500,
   [SolutionType.FORCING_NET]:             700,
+  [SolutionType.DISCONTINUOUS_NICE_LOOP]: 280,
+  [SolutionType.CONTINUOUS_NICE_LOOP]:    280,
+  [SolutionType.AIC]:                     280,
+  [SolutionType.GROUPED_NICE_LOOP]:       300,
+  [SolutionType.GROUPED_CONTINUOUS_NICE_LOOP]:    300,
+  [SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP]: 300,
+  [SolutionType.GROUPED_AIC]:             300,
+  [SolutionType.FORCING_CHAIN_CONTRADICTION]: 500,
+  [SolutionType.FORCING_CHAIN_VERITY]:    500,
+  [SolutionType.FORCING_NET_CONTRADICTION]: 700,
+  [SolutionType.FORCING_NET_VERITY]:      700,
   [SolutionType.TEMPLATE_SET]:            320,
   [SolutionType.TEMPLATE_DEL]:            320,
   [SolutionType.BRUTE_FORCE]:             800,
@@ -415,8 +426,19 @@ export class SudokuSolver extends AbstractSolver {
         return this._misc;
 
       case SolutionType.NICE_LOOP:
+      case SolutionType.DISCONTINUOUS_NICE_LOOP:
+      case SolutionType.CONTINUOUS_NICE_LOOP:
+      case SolutionType.AIC:
+      case SolutionType.GROUPED_NICE_LOOP:
+      case SolutionType.GROUPED_CONTINUOUS_NICE_LOOP:
+      case SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP:
+      case SolutionType.GROUPED_AIC:
       case SolutionType.FORCING_CHAIN:
+      case SolutionType.FORCING_CHAIN_CONTRADICTION:
+      case SolutionType.FORCING_CHAIN_VERITY:
       case SolutionType.FORCING_NET:
+      case SolutionType.FORCING_NET_CONTRADICTION:
+      case SolutionType.FORCING_NET_VERITY:
         return this._tabling;
 
       case SolutionType.TEMPLATE_SET:

@@ -122,10 +122,17 @@ export class TablingSolver extends AbstractSolver {
   override getStep(type: SolutionType): SolutionStep | null {
     switch (type) {
       case SolutionType.NICE_LOOP:
+      case SolutionType.DISCONTINUOUS_NICE_LOOP:
+      case SolutionType.CONTINUOUS_NICE_LOOP:
+      case SolutionType.AIC:
         return this._getNiceLoop();
       case SolutionType.FORCING_CHAIN:
+      case SolutionType.FORCING_CHAIN_CONTRADICTION:
+      case SolutionType.FORCING_CHAIN_VERITY:
         return this._getForcingChain();
       case SolutionType.FORCING_NET:
+      case SolutionType.FORCING_NET_CONTRADICTION:
+      case SolutionType.FORCING_NET_VERITY:
         return this._getForcingNet();
       default:
         return null;
@@ -152,8 +159,12 @@ export class TablingSolver extends AbstractSolver {
     this._fillTablesForNet();
     this._expandTables(this._onTable, this._offTable);
     const step = this._checkForcingChains();
-    if (step) return { ...step, type: SolutionType.FORCING_NET };
-    return null;
+    if (!step) return null;
+    if (step.type === SolutionType.FORCING_CHAIN_CONTRADICTION)
+      return { ...step, type: SolutionType.FORCING_NET_CONTRADICTION };
+    if (step.type === SolutionType.FORCING_CHAIN_VERITY)
+      return { ...step, type: SolutionType.FORCING_NET_VERITY };
+    return { ...step, type: SolutionType.FORCING_NET };
   }
 
   // ── fillTablesForNet() ────────────────────────────────────────────────────
@@ -330,13 +341,13 @@ export class TablingSolver extends AbstractSolver {
           const dels: Candidate[] = s.getCandidates(ci)
             .filter(d2 => d2 !== d)
             .map(d2 => ({ index: ci, value: d2 as Digit }));
-          if (dels.length > 0) return _step(SolutionType.NICE_LOOP, dels);
+          if (dels.length > 0) return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, dels);
         }
         // Case: offSets[d2].has(ci) for d2 != d: last link WEAK, diffCand
         //   (firstStrong && !lastStrong && diffCand) -> eliminate d2 from ci
         for (let d2 = 1; d2 <= 9; d2++) {
           if (d2 !== d && entry.offSets[d2].has(ci) && s.isCandidate(ci, d2)) {
-            return _step(SolutionType.NICE_LOOP, [{ index: ci, value: d2 as Digit }]);
+            return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d2 as Digit }]);
           }
         }
       } else {
@@ -344,13 +355,13 @@ export class TablingSolver extends AbstractSolver {
         // Case: offSets[d].has(ci) = last link WEAK, sameCand: Discontinuous
         //   (!firstStrong && !lastStrong && sameCand) -> eliminate d from ci
         if (entry.offSets[d].has(ci) && s.isCandidate(ci, d)) {
-          return _step(SolutionType.NICE_LOOP, [{ index: ci, value: d as Digit }]);
+          return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]);
         }
         // Case: onSets[d2].has(ci) for d2 != d: last link STRONG, diffCand
         //   (!firstStrong && lastStrong && diffCand) -> eliminate d (the weak/start candidate)
         for (let d2 = 1; d2 <= 9; d2++) {
           if (d2 !== d && entry.onSets[d2].has(ci) && s.isCandidate(ci, d)) {
-            return _step(SolutionType.NICE_LOOP, [{ index: ci, value: d as Digit }]);
+            return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]);
           }
         }
       }
@@ -385,7 +396,7 @@ export class TablingSolver extends AbstractSolver {
             dels.push({ index: buddy, value: startCand as Digit });
           }
         }
-        if (dels.length >= 1) return _step(SolutionType.NICE_LOOP, dels);
+        if (dels.length >= 1) return _step(SolutionType.AIC, dels);
       }
     }
     return null;
@@ -423,8 +434,8 @@ export class TablingSolver extends AbstractSolver {
     if (d === 0 || s.values[ci] !== 0 || !s.isCandidate(ci, d)) return null;
 
     const conclude = (): SolutionStep => isOn
-      ? _step(SolutionType.FORCING_CHAIN, [{ index: ci, value: d as Digit }])   // ON was wrong â†’ delete d
-      : _step(SolutionType.FORCING_CHAIN, [], [{ index: ci, value: d as Digit }]); // OFF was wrong â†’ set d
+      ? _step(SolutionType.FORCING_CHAIN_CONTRADICTION, [{ index: ci, value: d as Digit }])   // ON was wrong → delete d
+      : _step(SolutionType.FORCING_CHAIN_CONTRADICTION, [], [{ index: ci, value: d as Digit }]); // OFF was wrong → set d
 
     // Case 1: premise loops back to its inverse
     if (isOn && entry.offSets[d].has(ci)) return conclude();
@@ -483,12 +494,12 @@ export class TablingSolver extends AbstractSolver {
     for (let d = 1; d <= 9; d++) {
       for (const cell of on.onSets[d]) {
         if (off.onSets[d].has(cell) && s.isCandidate(cell, d)) {
-          return _step(SolutionType.FORCING_CHAIN, [], [{ index: cell, value: d as Digit }]);
+          return _step(SolutionType.FORCING_CHAIN_VERITY, [], [{ index: cell, value: d as Digit }]);
         }
       }
       for (const cell of on.offSets[d]) {
         if (off.offSets[d].has(cell) && s.isCandidate(cell, d)) {
-          return _step(SolutionType.FORCING_CHAIN, [{ index: cell, value: d as Digit }]);
+          return _step(SolutionType.FORCING_CHAIN_VERITY, [{ index: cell, value: d as Digit }]);
         }
       }
     }
@@ -567,11 +578,11 @@ function _firstVerity(
   for (let d = 1; d <= 9; d++) {
     for (const cell of onSets[d]) {
       if (s.isCandidate(cell, d))
-        return _step(SolutionType.FORCING_CHAIN, [], [{ index: cell, value: d as Digit }]);
+        return _step(SolutionType.FORCING_CHAIN_VERITY, [], [{ index: cell, value: d as Digit }]);
     }
     for (const cell of offSets[d]) {
       if (s.isCandidate(cell, d))
-        return _step(SolutionType.FORCING_CHAIN, [{ index: cell, value: d as Digit }]);
+        return _step(SolutionType.FORCING_CHAIN_VERITY, [{ index: cell, value: d as Digit }]);
     }
   }
   return null;

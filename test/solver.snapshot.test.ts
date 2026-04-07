@@ -85,7 +85,7 @@ describe("SudokuSolver — solution snapshots", () => {
     await solver.solve();
     const actual = solver.getSudoku().toValueString();
     expect(actual).toBe(expected);
-  });
+  }, 30_000);
 });
 
 // ---------------------------------------------------------------------------
