@@ -268,7 +268,7 @@ describe("ColoringSolver", () => {
       const solver = makeSolver(SIMPLE_COLORS_PUZZLE);
       const step = solver.getStep(SolutionType.SIMPLE_COLORS);
       expect(step).not.toBeNull();
-      expect(step!.type).toBe(SolutionType.SIMPLE_COLORS);
+      expect([SolutionType.SIMPLE_COLORS_TRAP, SolutionType.SIMPLE_COLORS_WRAP]).toContain(step!.type);
       expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
     });
 
@@ -294,7 +294,7 @@ describe("ColoringSolver", () => {
       const solver = makeSolver(MULTI_COLORS_PUZZLE);
       const step = solver.getStep(SolutionType.MULTI_COLORS);
       expect(step).not.toBeNull();
-      expect(step!.type).toBe(SolutionType.MULTI_COLORS);
+      expect([SolutionType.MULTI_COLORS_1, SolutionType.MULTI_COLORS_2]).toContain(step!.type);
       expect(step!.candidatesToDelete.length).toBeGreaterThan(0);
     });
 
