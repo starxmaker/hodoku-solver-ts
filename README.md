@@ -1,6 +1,6 @@
 # hodoku-solver-ts
 
-TypeScript port of [HoDoKu](https://sourceforge.net/projects/hodoku/)'s logical Sudoku solver.
+Work in progress TypeScript port of [HoDoKu](https://sourceforge.net/projects/hodoku/)'s logical Sudoku solver.
 
 Applies human-style techniques — from naked singles up to forcing chains — to solve or analyse a puzzle step by step.
 
