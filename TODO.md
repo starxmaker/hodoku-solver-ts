@@ -156,7 +156,7 @@ The following Java `Options` fields have no TS equivalent — TS hardcodes the J
 | `RESTRICT_CHAIN_SIZE` | `true` | Chain cap is always applied |
 | `RESTRICT_CHAIN_LENGTH` | `20` | X-Chain / XY-Chain / Remote Pair cap = 20 ✓ |
 | `RESTRICT_NICE_LOOP_LENGTH` | `10` | Nice Loop cap (getStep mode in ChainSolver is commented out) |
-| `ALL_STEPS_ALS_CHAIN_LENGTH` | `6` | ALS-XY-Chain depth = 6 ✓ |
+| `ALL_STEPS_ALS_CHAIN_LENGTH` | `6` | **getStep mode only**: `getStep(ALS_XY_CHAIN)` resets chain to `MAX_RC = 50` (unlimited depth). The `6` limit applies only to `getAllAlses` (find-all) mode. TS caps at 5 RCs — see **H13**. |
 | `ALL_STEPS_ALS_CHAIN_FORWARD_ONLY` | `true` | TS builds both-direction adj map but iterates `ai < aj` pairs only — functionally equivalent |
 | `ALLOW_DUALS_AND_SIAMESE` | `false` | TS never generates dual/siamese patterns ✓ |
 | `MAX_FISH_SIZE` | `4` | TS cap = 4 ✓ |
@@ -209,6 +209,10 @@ The following areas were audited and found equivalent to Java:
 | `SimpleSolver` locked candidates (LC1/LC2) — exactly-2-or-3 filter, row/col/box alignment checks, elimination generation all match Java | ✅ |
 | `TablingSolver` `_checkTwoChains` — both-premise verity detection correct (minor: Java removes premise cell from results; TS omits this but checkOneChain runs first and handles the degenerate case) | ✅ (minor divergence documented in H notes) |
 | `Sudoku2.setSudoku` — candidate initialisation (fill all candidates, then `_placeDigit` for each given) matches Java's 81-char parse path | ✅ (TS only implements the 81-char format; Java also supports PM grid formats — see Category D) |
+| `AlsSolver._collectAlses` — includes 1-cell ALS (k=1), matching Java's default `getAlses(false)` which includes bi-value cells | ✅ |
+| `AlsSolver._findAlsXYWing` — hub identification, overlap check (A/B only), RC exclusion mask, elimination generation all match Java | ✅ |
+| `TablingSolver._checkAllChainsForCells` / `_checkAllChainsForHouses` — intersection verity logic matches Java's `checkEntryList` for cells and `checkAllChainsForHouse(houseSets)` | ✅ |
+| `AlsSolver._collectRCs` — forward-only pair iteration (`i < j`) with max 2 RCs per pair matches Java's `rcOnlyForward=true` collection | ✅ |
 
 ---
 
@@ -494,6 +498,44 @@ for (let cell = 0; cell < 81; cell++) {
 ```
 
 File: `src/solver/TablingSolver.ts`, `_checkOneChain`.
+
+---
+
+### H13 — AlsSolver: ALS-XY-Chain depth capped at 5 RCs; Java allows 50 (unlimited) in getStep mode
+
+Java's `AlsSolver.getStep(ALS_XY_CHAIN)` explicitly resets the chain array:
+```java
+if (chain.length != MAX_RC) chain = new RestrictedCommon[MAX_RC];  // MAX_RC = 50
+```
+So Java can follow up to **50 RC links** in a single ALS chain during `getStep` mode (effectively unlimited).
+
+TS `_alsChainDFS` returns null when `chain.length > 6`, limiting chains to **5 RCs / 6 ALS nodes**.
+
+Category F previously marked this as "ALS-XY-Chain depth = 6 ✓" — that was incorrect; the `6` default from `ALL_STEPS_ALS_CHAIN_LENGTH` applies only to the `getAllAlses` (find-all) mode, not to `getStep`.
+
+**Additional direction difference:** Java's `getStep` mode calls `finder.setRcOnlyForward(true)`, which means RCs are stored only for pairs where `als1.index < als2.index`. The chain search from any starting ALS can only reach higher-indexed ALS (monotonically increasing). TS adds both `(i→j)` and `(j→i)` directions to the adjacency map, so TS can traverse chains in any order. TS finds a strict superset of Java's ALS-XY-Chain steps (more complete).
+
+**Impact:** Practical impact low — very long ALS chains are rare. Both divergences make TS simultaneously more restricted (max 5 RCs) and more permissive (bidirectional search) than Java. ALS_XY_CHAIN is disabled in Java's default mode anyway (H3).
+
+**Fix:** Change `if (chain.length > 6) return null` to a configurable limit (default 50), and consider making RC direction configurable (default forward-only).
+
+File: `src/solver/AlsSolver.ts`, `_findAlsChain`, `_alsChainDFS`.
+
+---
+
+### H14 — FishSolver: Kraken fish limited to basic fish; Java default includes Franken Kraken
+
+Java's `KRAKEN_MAX_FISH_TYPE = 1` means the Kraken fish search includes:
+- BASIC fish (rows/cols only)
+- FRANKEN fish (rows, cols, and one box cover or base)
+
+TS `_findKrakenFish` iterates only `for (const rowBase of [true, false])` with lines 0–8 (rows) and 9–17 (cols). No box-based cover or base candidates are included — TS searches **BASIC Kraken fish only**.
+
+**Impact:** TS misses Kraken Franken fish. Kraken fish is disabled in Java's default solve mode (H3), so this only matters for users who explicitly enable KRAKEN_FISH.
+
+**Fix:** Add a Franken Kraken search path that uses boxes as base or cover units, mirroring `_findFrankenFish` but with Kraken forcing-chain analysis.
+
+File: `src/solver/FishSolver.ts`, `_findKrakenFish`.
 
 ---
 
