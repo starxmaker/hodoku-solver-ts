@@ -1,4 +1,4 @@
-# HoDoKu Java → TypeScript Port: Difference Tracker
+﻿# HoDoKu Java → TypeScript Port: Difference Tracker
 
 ## Category A — Intentionally Omitted (GUI / display layer)
 
@@ -156,7 +156,7 @@ The following Java `Options` fields have no TS equivalent — TS hardcodes the J
 | `RESTRICT_CHAIN_SIZE` | `true` | Chain cap is always applied |
 | `RESTRICT_CHAIN_LENGTH` | `20` | X-Chain / XY-Chain / Remote Pair cap = 20 ✓ |
 | `RESTRICT_NICE_LOOP_LENGTH` | `10` | Nice Loop cap (getStep mode in ChainSolver is commented out) |
-| `ALL_STEPS_ALS_CHAIN_LENGTH` | `6` | **getStep mode only**: `getStep(ALS_XY_CHAIN)` resets chain to `MAX_RC = 50` (unlimited depth). The `6` limit applies only to `getAllAlses` (find-all) mode. TS caps at 5 RCs — see **H13**. |
+| `ALL_STEPS_ALS_CHAIN_LENGTH` | `6` | **getStep mode only**: `getStep(ALS_XY_CHAIN)` resets chain to `MAX_RC = 50` (unlimited depth). The `6` limit applies only to `getAllAlses` (find-all) mode. TS caps at 50 RCs (fixed). |
 | `ALL_STEPS_ALS_CHAIN_FORWARD_ONLY` | `true` | TS builds both-direction adj map but iterates `ai < aj` pairs only — functionally equivalent |
 | `ALLOW_DUALS_AND_SIAMESE` | `false` | TS never generates dual/siamese patterns ✓ |
 | `MAX_FISH_SIZE` | `4` | TS cap = 4 ✓ |
@@ -181,7 +181,7 @@ The following areas were audited and found equivalent to Java:
 | Area | Status |
 |---|---|
 | `SolutionType` enum — all 60+ Java types | ✅ All present in `SolutionType.ts` |
-| `TECHNIQUE_ORDER` — matches Java `Options.DEFAULT_SOLVER_STEPS` | ✅ Order matches; see **H2** (DUAL types) and **H3** (enabled/disabled divergence) for known caveats |
+| `TECHNIQUE_ORDER` — matches Java `Options.DEFAULT_SOLVER_STEPS`; DUAL types removed; disabled-by-default techniques removed | ✅ |
 | `SimpleSolver` dispatch (FULL_HOUSE through HIDDEN_QUAD) | ✅ |
 | `ColoringSolver` dispatch (SIMPLE_COLORS _TRAP/_WRAP, MULTI_COLORS _1/_2) | ✅ |
 | `WingSolver` dispatch (XY_WING, XYZ_WING, W_WING) | ✅ |
@@ -191,31 +191,31 @@ The following areas were audited and found equivalent to Java:
 | `TemplateSolver` dispatch (TEMPLATE_SET, TEMPLATE_DEL) | ✅ dispatch only — algorithm is incomplete, see **H6** |
 | `AlsSolver` dispatch (ALS_XZ, ALS_XY_WING, ALS_XY_CHAIN depth 6, DEATH_BLOSSOM) | ✅ |
 | `UniquenessSolver` dispatch (UNIQUENESS_1–6, HIDDEN_RECTANGLE, AVOIDABLE_RECTANGLE_1/2, BUG_PLUS_1) | ✅ |
-| `FishSolver` dispatch — basic/finned/sashimi/franken/mutant sizes 2–7 + KRAKEN_FISH_TYPE_1/2 | ✅ |
+| `FishSolver` dispatch — basic/finned/sashimi/franken/mutant sizes 2–7 + KRAKEN_FISH_TYPE_1/2; H14: Kraken Franken added via `_findKrakenFrankenFish` (base=rows/cols, cover includes ≥1 box, same fin+forcing-chain logic) | ✅ |
 | `TablingSolver` dispatch — NICE_LOOP, CONTINUOUS/DISCONTINUOUS_NICE_LOOP, AIC, GROUPED_* variants, FORCING_CHAIN/NET | ✅ |
 | `ALLOW_DUALS_AND_SIAMESE = false` — dual patterns never generated | ✅ |
 | ALS pair scanning direction — TS `ai < aj` + both-direction adj entries matches Java default | ✅ |
 | `Sudoku2._placeDigit` — removes placed digit from all buddy candidates | ✅ |
 | `AbstractSolver.doStep` — applies `setValue` for placements, `removeCandidate` for eliminations | ✅ |
-| `ColoringSolver` algorithm — WRAP/TRAP dispatch correct; SIMPLE_COLORS_TRAP collects only 1 elimination per call instead of all matching cells — **see H23** | ✅ (TRAP single-elim gap — H23) |
-| `WingSolver` algorithms — XY-Wing and XYZ-Wing match Java exactly; W-Wing bridge-cell elimination exclusion is too broad — **see H20** | ✅ (W-Wing gap — H20) |
+| `ColoringSolver` algorithm — WRAP/TRAP dispatch correct; SIMPLE_COLORS_TRAP collects all matching cells (fixed) | ✅ |
+| `WingSolver` algorithms — XY-Wing, XYZ-Wing, and W-Wing (bridge-cell exclusion fixed) all match Java | ✅ |
 | `MiscellaneousSolver` SUE_DE_COQ algorithm — intersection subsets, line/block enumeration, allowed-cand mask, elimination formulas all match Java | ✅ |
 | `UniquenessSolver` UR1–UR6, Hidden Rectangle, Avoidable Rectangle 1/2, BUG+1 — all algorithms verified correct | ✅ |
 | `ChainSolver` X-Chain, XY-Chain, Remote Pair — chain length cap (20), DFS structure, elimination rules all match Java | ✅ |
 | `AlsSolver` DEATH_BLOSSOM — stem loop, per-candidate ALS assignment, overlap guard, commonMask, elimination formula all match Java | ✅ |
 | `FishSolver` basic/finned fish — fin detection, sashimi check (≤1 covered candidate in a base line), elimination filter all match Java | ✅ |
-| `SingleDigitPatternSolver` algorithms — Skyscraper, Two-String Kite, Turbot Fish (3-link X-chain) all match Java; Empty Rectangle `checkEmptyRectangle` elimination logic matches Java but box-arm filter is too strict — see H19 | ✅ (ER arm filter gap — H19) |
+| `SingleDigitPatternSolver` algorithms — Skyscraper, Two-String Kite, Turbot Fish, Empty Rectangle (arm filter fixed) all match Java | ✅ |
 | `AlsSolver` ALS-XZ doubly-linked (`_doublyLinkedElims`) — leftover-digit ALS lock propagation matches Java | ✅ |
 | `SimpleSolver` locked candidates (LC1/LC2) — exactly-2-or-3 filter, row/col/box alignment checks, elimination generation all match Java | ✅ |
 | `TablingSolver` `_checkTwoChains` — both-premise verity detection correct (minor: Java removes premise cell from results; TS omits this but checkOneChain runs first and handles the degenerate case) | ✅ (minor divergence documented in H notes) |
 | `Sudoku2.setSudoku` — candidate initialisation (fill all candidates, then `_placeDigit` for each given) matches Java's 81-char parse path | ✅ (TS only implements the 81-char format; Java also supports PM grid formats — see Category D) |
 | `AlsSolver._collectAlses` — includes 1-cell ALS (k=1), matching Java's default `getAlses(false)` which includes bi-value cells | ✅ |
 | `AlsSolver._findAlsXYWing` — hub identification, overlap check (A/B only), RC exclusion mask, elimination generation all match Java | ✅ |
-| `AlsSolver._findAlsChain` — adjacency rule, doubly-linked RC both-direction expansion, and end-ALS cell exclusion match Java; depth cap fixed (H13A ✅); doubly-linked partner digit over-exclusion from Z-mask remains — **see H13 Bug B/C** | ✅ (two gaps remain — H13 Bug B/C) |
+| `AlsSolver._findAlsChain` — adjacency rule, doubly-linked RC both-direction expansion, depth cap fixed (50), active-RC-only Z-mask exclusion fixed; TS traverses both directions (superset of Java) | ✅ |
 | `TablingSolver._checkAllChainsForCells` / `_checkAllChainsForHouses` — intersection verity logic matches Java's `checkEntryList` for cells and `checkAllChainsForHouse(houseSets)` | ✅ |
 | `AlsSolver._collectRCs` — forward-only pair iteration (`i < j`) with max 2 RCs per pair matches Java's `rcOnlyForward=true` collection | ✅ |
 | `BruteForceSolver.getStep` — picks middle unsolved cell and reads pre-computed solution; matches Java's `getBruteForce()` logic | ✅ |
-| `SudokuSolver.solve()` loop — iterates `TECHNIQUE_ORDER` and calls `doStep` on first hit; structurally matches Java's `getHint` loop (H3 separate — H7 ✅ fixed) | ✅ |
+| `SudokuSolver.solve()` loop — iterates `TECHNIQUE_ORDER` and calls `doStep` on first hit; per-technique difficulty level applied; structurally matches Java's `getHint` loop | ✅ |
 | `TablingSolver.setSudoku` — properly resets `_krakenFilled` and all table state on each new puzzle; matches Java's `AbstractSolver` chain | ✅ |
 | `Sudoku2._countSolns` / `getSolution` — MRV+backtracker is functionally equivalent to Java's Dancing Links for uniqueness detection and solution retrieval | ✅ |
 | `TablingSolver._checkTwoChains` premise-cell exclusion — Java removes the premise cell from the onSets/offSets intersection to avoid double-reporting what `_checkOneChain` already catches; TS does not remove it. In practice, any such cell would already be caught by `_checkOneChain` before `_checkTwoChains` runs, so this causes no incorrect results — just a possible duplicate report in a degenerate edge case | ✅ (minor; no action needed) |
@@ -223,18 +223,18 @@ The following areas were audited and found equivalent to Java:
 | `UniquenessSolver` UR1–UR6 / Hidden Rectangle / BUG+1 / Avoidable Rectangle — all elimination rules (`_checkUR`, `_findBugPlus1`, `_findAvoidableRectangle`) match Java's equivalent logic in `checkURForStep` / `getBugPlus1` | ✅ |
 | `MiscellaneousSolver` — only implements `SUE_DE_COQ`; Java's `MiscellaneousSolver` also only exposes `SUE_DE_COQ` via `getStep` | ✅ |
 | `GiveUpSolver` / `IncompleteSolver` — both trivial sentinels matching Java behaviour exactly | ✅ |
-| `ChainSolver` remote-pair, X-chain, XY-chain core detection logic — elimination conditions and traversal rules all match Java; H16 ✅ fixed — now returns shortest chain, 20-node cap matches Java default | ✅ |
+| `ChainSolver` remote-pair, X-chain, XY-chain core detection logic — returns shortest chain; 20-node cap matches Java default | ✅ |
 | `SimpleSolver` naked subsets (NAKED_PAIR/TRIPLE/QUAD) — combo union mask + popcount=n check, primary/secondary house deletion, `isLocked` classification all match Java; `SUBSET_HOUSE_ORDER` = blocks first then rows then cols matches Java's block-first search order | ✅ |
 | `SimpleSolver` hidden subsets (HIDDEN_PAIR/TRIPLE/QUAD) — eligible-digit filter (1..n occurrences), cellSet size=n check, non-target-digit deletion all match Java | ✅ |
 | `SimpleSolver` locked subsets (LOCKED_PAIR/TRIPLE) — uses same `_findNakedSubset(n, locked=true)` path; minor: TS searches all 27 houses, Java only searches blocks (same eliminations found, possible cosmetic ordering difference) | ✅ |
-| `FishSolver` Franken/Mutant fish algorithms — base/cover constraints (Franken: base=rows-only or cols-only, cover has ≥1 box; Mutant: any mix with ≥1 box), fin detection, elimination filter all match Java; H17 ✅ fixed — size caps removed | ✅ |
-| `TemplateSolver` single-pass AND/OR template logic — template validation (placed cells included, forbidden cells excluded), `svt`/`dct` accumulation, SET/DEL step generation all match Java (cross-digit iterative refinement missing — see H6) | ✅ |
+| `FishSolver` Franken/Mutant fish algorithms — base/cover constraints, fin detection, elimination filter all match Java; size caps removed (sizes 2–7) | ✅ |
+| `TemplateSolver` single-pass AND/OR template logic — template validation (placed cells included, forbidden cells excluded), `svt`/`dct` accumulation, SET/DEL step generation all match Java; H6: cross-digit iterative refinement loop added (removes templates conflicting with other digits' forced-cell masks, repeats until stable) | ✅ |
 | `ColoringSolver` MULTI_COLORS_1 algorithm — 4-orientation inner loop `(colorA=a0/a1, colorB=b0/b1)` correctly covers all four `checkMultiColor2` calls Java makes per ordered pair (i,j); elimination logic (cells outside both components seeing BOTH `oppA` AND `oppB`) matches Java's `checkCandidateToDelete`; unordered outer loop `j > i` is fine for MC1 due to 4-orientation symmetry | ✅ |
 | `TablingSolver._fillTablesForNet` / `_netPropagateOn` / `_netPropagateOff` — propagates naked singles and hidden singles transitively after each placement; correctly simulates Java's `chainsOnly=false` full-propagation branch for FORCING_NET | ✅ |
-| `TablingSolver._expandTablesWithGroups` — group-OFF detection triggers forced singleton ON in row/col/block; **gaps**: (1) G1-OFF → G2-ON when only two groups cover all d-positions (should delete d from G2-buddy cells, not addSet G2 cells individually) — **H21**; (2) S-OFF → G-ON when singleton S and group G exhaust house d-candidates (should delete d from G-buddy cells, never fired for non-group cells) — **H22** | ✅ (two gaps — H21, H22) |
-| `TablingSolver._checkForcingChains` — five-case contradiction/verity detection (premise↔inverse, same-candidate set+del, two-values-in-one-cell, same-value-twice-in-house, all-positions-of-digit-deleted-in-house) matches Java's `checkOneChain` / `checkTwoChains` / `checkAllChainsFor*` structure (see H12 for missing case 6, H4/H5/H9 for table-fill divergences) | ✅ |
+| `TablingSolver._expandTablesWithGroups` — group-OFF detection: (1) forces singleton ON when remaining.length===1; (2) H21: G1-OFF → G2-ON via chain-state-aware filter when remaining cells form a second group (fires G2-buddy deletions); (3) H22: singleton-OFF → G-ON when singleton + group exhaust house d-candidates (fires G-buddy deletions) | ✅ |
+| `TablingSolver._checkForcingChains` — six-case contradiction/verity detection (case 6 added: cell-without-candidates) matches Java's `checkOneChain` / `checkTwoChains` / `checkAllChainsFor*` structure; H5/H9 pending | ✅ |
 | `TablingSolver._fillTables` (chainsOnly=true) — ON-premise: deletes all other candidates from cell + deletes d from all peer buddies; OFF-premise: naked-single promotion (1 remaining candidate) + hidden-single-in-house (1 remaining position for d); matches Java's `fillTable(chainsOnly=true)` direct-implication logic | ✅ |
-| `TablingSolver._expandTablesWithAls` — BFS post-expansion with ALS fire condition (all entry-digit cells in `offSets[e]` → exit digits deleted from `buddiesFor[z]`); ALS-to-ALS chaining handled transitively by continuing BFS; matches Java's elimination propagation logic (buddy-forcing for ≥3-candidate cells missing — see H18) | ✅ |
+| `TablingSolver._expandTablesWithAls` — BFS post-expansion with ALS fire condition (all entry-digit cells in `offSets[e]` → exit digits deleted from `buddiesFor[z]`); ALS-to-ALS chaining handled transitively by continuing BFS; H18: buddy-forcing for ≥3-candidate cells (if ALS exit-digit deletions reduce a buddy to 1 remaining cand → forced ON) | ✅ |
 
 ---
 
@@ -242,101 +242,9 @@ The following areas were audited and found equivalent to Java:
 
 These are genuine differences in the *implemented* code that produce incorrect or non-Java-equivalent behaviour.
 
-### H1 — Wrong base scores for last-resort techniques (difficulty rating bug)
 
-Java `Options.DEFAULT_SOLVER_STEPS` defines the following base scores. TS has different values:
 
-| Technique | Java score | TS score | Java `enabled` | Impact now |
-|---|---|---|---|---|
-| `BRUTE_FORCE` | **10 000** | 800 | `true` | ❌ Active bug |
-| `TEMPLATE_SET` | **10 000** | 320 | `false` | Bug latent until H3 fixed |
-| `TEMPLATE_DEL` | **10 000** | 320 | `false` | Bug latent until H3 fixed |
-| `KRAKEN_FISH` / `_TYPE_1` / `_TYPE_2` | **500** | 470 | `false` | Bug latent until H3 fixed |
 
-`BRUTE_FORCE` is immediately relevant since Java enables it (`enabled=true`). The others are also disabled by default in Java (see H3), so their wrong scores only affect TS users right now.
-
-File: `src/solver/SudokuSolver.ts`, `STEP_BASE_SCORES` constant.
-
----
-
-### H2 — DUAL_TWO_STRING_KITE and DUAL_EMPTY_RECTANGLE are tried during normal solving (Java never does this)
-
-Java's `Options.DEFAULT_SOLVER_STEPS` has **no entry** for `DUAL_TWO_STRING_KITE` or `DUAL_EMPTY_RECTANGLE`. These types are only generated by `SudokuStepFinder.findAllSkyScrapers()` / `findAllEmptyRectangles()` (i.e. "find all steps" mode). In Java's sequential solve loop, they are never requested.
-
-TS `TECHNIQUE_ORDER` includes both types between `TWO_STRING_KITE` and `TURBOT_FISH`. This means TS may:
-- Apply a dual step where Java would not, changing the solution path and difficulty score.
-- Assign difficulty score to a dual step (130/120) that Java would add 0 for.
-
-Fix: remove `SolutionType.DUAL_TWO_STRING_KITE` and `SolutionType.DUAL_EMPTY_RECTANGLE` from `TECHNIQUE_ORDER` (and their entries from `STEP_BASE_SCORES`).
-
----
-
-### H3 — 31 techniques disabled in Java's default solve mode are all enabled in TS
-
-Java `StepConfig` has an `enabled` flag ("used in solution?"). In `Options.DEFAULT_SOLVER_STEPS`, the following techniques have `enabled = false`, meaning Java's sequential auto-solve loop **never** tries them. TS has no disable concept — all entries in `TECHNIQUE_ORDER` are always tried.
-
-| Technique | Java default `enabled` |
-|---|---|
-| `SQUIRMBAG` | `false` |
-| `WHALE` | `false` |
-| `LEVIATHAN` | `false` |
-| `FINNED_SQUIRMBAG` | `false` |
-| `SASHIMI_SQUIRMBAG` | `false` |
-| `FINNED_WHALE` | `false` |
-| `SASHIMI_WHALE` | `false` |
-| `FINNED_LEVIATHAN` | `false` |
-| `SASHIMI_LEVIATHAN` | `false` |
-| `DEATH_BLOSSOM` | `false` |
-| `FRANKEN_JELLYFISH` | `false` |
-| `FRANKEN_SQUIRMBAG` | `false` |
-| `FRANKEN_WHALE` | `false` |
-| `FRANKEN_LEVIATHAN` | `false` |
-| `FINNED_FRANKEN_JELLYFISH` | `false` |
-| `FINNED_FRANKEN_SQUIRMBAG` | `false` |
-| `FINNED_FRANKEN_WHALE` | `false` |
-| `FINNED_FRANKEN_LEVIATHAN` | `false` |
-| `MUTANT_X_WING` | `false` |
-| `MUTANT_SWORDFISH` | `false` |
-| `MUTANT_JELLYFISH` | `false` |
-| `MUTANT_SQUIRMBAG` | `false` |
-| `MUTANT_WHALE` | `false` |
-| `MUTANT_LEVIATHAN` | `false` |
-| `FINNED_MUTANT_X_WING` | `false` |
-| `FINNED_MUTANT_SWORDFISH` | `false` |
-| `FINNED_MUTANT_JELLYFISH` | `false` |
-| `FINNED_MUTANT_SQUIRMBAG` | `false` |
-| `FINNED_MUTANT_WHALE` | `false` |
-| `FINNED_MUTANT_LEVIATHAN` | `false` |
-| `KRAKEN_FISH` | `false` |
-| `TEMPLATE_SET` | `false` |
-| `TEMPLATE_DEL` | `false` |
-
-**Impact:** TS may find a step (e.g. DEATH_BLOSSOM, MUTANT_X_WING) where Java would fall through to FORCING_CHAIN. This changes both the solution path and the cumulative difficulty score for any puzzle that needs one of these techniques. It also means TS may classify a puzzle as EXTREME with a lower numeric score than Java would compute.
-
-**Mitigation options:**
-1. Accept the divergence (TS is actually more complete than Java's *default* mode).
-2. Add a `defaultEnabled` filter to `TECHNIQUE_ORDER` matching Java's defaults, controlled by a config option.
-
----
-
-### H4 — TablingSolver: ALS node expansion incorrectly active for GROUPED_NICE_LOOP, FORCING_CHAIN, and FORCING_NET
-
-Java's default `ALLOW_ALS_IN_TABLING_CHAINS = false` means ALS nodes must **not** be added to tabling tables during the standard single-step `getStep()` mode. Java's `getStep()` dispatch:
-
-| Technique | `withAlsNodes` value |
-|---|---|
-| `NICE_LOOP` | `false` (hard-coded) ✓ TS matches |
-| `GROUPED_NICE_LOOP` | `allowAlsInTablingChains` = `false` ✗ TS unconditional |
-| `FORCING_CHAIN` | `allowAlsInTablingChains` = `false` ✗ TS unconditional |
-| `FORCING_NET` | `allowAlsInTablingChains` = `false` ✗ TS unconditional |
-
-TS `_getGroupedNiceLoop()`, `_getForcingChain()`, and `_getForcingNet()` all call `_expandTablesWithAls(this._onTable, this._offTable, collectAlses(this.sudoku))` unconditionally. This means TS may find ALS-assisted grouped/forcing chains where Java would not.
-
-**Fix:** Guard the `_expandTablesWithAls(...)` call in those three methods behind a `ALLOW_ALS_IN_TABLING_CHAINS` option (default `false`), matching Java's default behavior.
-
-File: `src/solver/TablingSolver.ts`
-
----
 
 ### H5 — TablingSolver: table propagation uses unbounded BFS vs Java's 4-pass limit
 
@@ -347,59 +255,6 @@ Java's `getTableEntry()` propagates forced consequences by running `findAllNaked
 **Mitigation options:**
 1. Accept the divergence (TS is more complete).
 2. Add a `MAX_TABLE_LOOK_AHEAD = 4` iteration cap to `_netPropagateOn/Off` to match Java exactly.
-
----
-
-### H6 — TemplateSolver: missing cross-digit template refinement
-
-Java's template computation in `SudokuStepFinder.initTemplates()` has an iterative refinement step that runs only in normal `getStep()` mode (not findAll):
-
-1. For each valid template of digit `j`, check whether it overlaps with `setValueTemplates[k]` (= the forced-placement AND-mask) for any other digit `k ≠ j`.
-2. If so, remove that template from `j`'s pool (a template that places `j` in a cell forced for `k` is contradictory).
-3. Repeat until no more templates are removed.
-
-This refines both `setValueTemplates` (AND of remaining valid templates → cells that MUST contain the digit) and `delCandTemplates` (OR → cells that CAN contain the digit; negated to get elimination candidates).
-
-TS `TemplateSolver` does only the basic single-pass filter (reject templates that miss placed cells or touch forbidden cells). It has no cross-digit refinement loop. As a result:
-
-- **TEMPLATE_SET**: TS finds fewer forced placements (more templates survive → tighter AND).
-- **TEMPLATE_DEL**: TS finds fewer eliminations (more templates survive → wider OR → narrower `~OR`).
-
-TS is a strict subset of Java for template steps (less complete, not incorrect).
-
-Practical impact: TEMPLATE_SET and TEMPLATE_DEL are disabled in Java by default (H3). The gap only matters on boards where template solving would be needed.
-
-**Fix:** After the initial filter loop, add an iterative removal pass: for template `t` of digit `j`, compute `andMask[k]` for all `k ≠ j` and remove `t` if `t ∩ andMask[k] ≠ ∅`. Recompute AND/OR masks after each round and repeat until stable.
-
-File: `src/solver/TemplateSolver.ts`
-
----
-
-### ✅ H7 — FIXED — SudokuSolver: difficulty rating uses only score thresholds; Java also uses per-technique level
-
-Java's `getHint()` loop does two things when a step is found:
-1. `score += stepConfig.getBaseScore()` — accumulates the step's score.
-2. `level = max(level, stepConfig.getDifficultyLevel())` — immediately promotes the puzzle's difficulty to at least the technique's configured level.
-
-After the loop, Java does an additional `while (score > level.maxScore) level = nextLevel` promotion.
-
-TS `solveWithRating()` does **only** the score-threshold promotion (post-loop). It has no per-technique level. This means:
-
-| Scenario | Java difficulty | TS difficulty |
-|---|---|---|
-| Puzzle needs FORCING_CHAIN, total score = 1200 | **EXTREME** (technique level = EXTREME) | HARD (1200 < 1600) |
-| Puzzle needs X_WING, total score = 400 | **HARD** (technique level = HARD) | EASY (400 < 800) |
-| Puzzle needs GROUPED_NICE_LOOP, score = 1500 | **UNFAIR** (technique level = UNFAIR) | HARD (1500 < 1600) |
-
-Any puzzle that requires a technique whose configured level is higher than what the cumulative score alone would imply will be rated at a lower difficulty by TS than by Java.
-
-**Most impactful case:** FORCING_CHAIN and FORCING_NET (level = EXTREME) — on puzzles with few steps these can produce EXTREME in Java but HARD in TS.
-
-**Fix:** Add a per-technique `difficultyLevel` to `STEP_BASE_SCORES` entries (or a separate lookup), and track `level = max(level, techniqueDifficultyLevel)` in `solveWithRating()`.
-
-File: `src/solver/SudokuSolver.ts`
-
-**Minor additional difference:** Java's `solve()` bails out early with `return false` if fewer than 10 cells are set (`(81 - unsolvedCellCount) < 10`). TS has no such guard and will attempt to solve any puzzle regardless of how few cells are given.
 
 ---
 
@@ -466,478 +321,5 @@ File: `src/solver/TablingSolver.ts`, `_checkNiceLoops`.
 
 ---
 
-### ✅ H10 — FIXED — TablingSolver `_checkAics`: missing AIC Type 2 (different-candidate AICs)
-
-Java `checkAics` handles two chain types:
-- **Type 1** (same start/end candidate `d`): find endCell in `onSets[d]`, eliminate `d` from all common buddies
-- **Type 2** (different start `d1` / end `d2`): if endCell sees startCell, endCell has `d1`, and startCell has `d2` → delete `d1` from endCell and `d2` from startCell
-
-TS `_checkAics` iterates only over `onSets[startCand]` (same candidate), so **only Type 1** is implemented. Type 2 steps are never generated.
-
-**Impact:** Some advanced AIC eliminations are missed. A Type 2 AIC ends at a cell that sees the start cell with a different candidate — a valid but less common pattern.
-
-**Fix:** Add a second loop after the Type 1 search: for each `(endCell, endCand)` found in `onSets[d2]` for `d2 ≠ startCand`, check if `endCell ∈ BUDDIES[startCell]` and if mutual cross-candidates exist, then produce a Type 2 AIC step.
-
-File: `src/solver/TablingSolver.ts`, `_checkAics`.
-
----
-
-### H11 — TablingSolver `_checkAics`: AIC Type 1 threshold divergence
-
-Java requires `tmpSet.size() >= 2` (the intersection `buddies(start) ∩ buddies(end) ∩ cands[d]` must contain **at least 2 cells**) before calling `checkAic`. Java's comment: *"everything else is already covered by a Nice Loop."*
-
-TS requires only `dels.length >= 1` (at least 1 common buddy). This means TS produces AIC steps for 1-common-buddy cases that Java intentionally skips (treating them as nice loops instead).
-
-**Impact:** Minor classification difference. TS emits `AIC` for steps Java would classify as `DISCONTINUOUS_NICE_LOOP`. Due to H8 breaking nice loops in TS, this may actually help TS find valid steps that H8 would otherwise corrupt.
-
-**Fix (low priority):** Increase TS threshold to `dels.length >= 2` to match Java. Only relevant once H8/H9 are fixed.
-
-File: `src/solver/TablingSolver.ts`, `_checkAics`.
-
----
-
-### H12 — TablingSolver `_checkOneChain`: missing "cell-without-candidates" contradiction case
-
-Java `checkOneChain` has a 6th contradiction check not present in TS:
-
-```java
-// cell without candidates -> assumption false
-tmpSet.setAll();
-for (int i = 1; i < entry.offSets.length; i++) {
-    tmpSet1.set(entry.offSets[i]);
-    tmpSet1.orNot(finder.getCandidates()[i]);
-    tmpSet.and(tmpSet1);
-}
-// remove cells where a value is already set, then:
-// if tmpSet is non-empty → some cell has ALL its candidates eliminated → contradiction
-```
-
-Logic: for every candidate `d`, compute the set `offSets[d] ∪ ~candidates[d]` (cells where `d` is either already eliminated by the chain, or was never a candidate). AND all of these together. Any cell in the result has **all** its candidates eliminated by the chain → the cell becomes empty → the premise is contradictory.
-
-TS `_checkOneChain` has 5 cases (premise-inverse, set+deleted, two-values-in-cell, value-twice-in-house, all-positions-in-house-deleted) but no case covering "the chain leaves a cell with zero remaining candidates."
-
-**Impact:** TS misses some forcing-chain contradiction deductions — specifically, contradictions that arise when a chain collectively wipes out all candidates in some cell but no single digit is both set and deleted there.
-
-**Fix:** Add a sixth case to `_checkOneChain`:
-```typescript
-// Case 6: some cell has all its candidates eliminated
-for (let cell = 0; cell < 81; cell++) {
-  if (s.values[cell] !== 0) continue;
-  const cands = s.getCandidates(cell);
-  if (cands.length === 0) continue;  // already solved
-  if (cands.every(d2 => entry.offSets[d2].has(cell))) return conclude();
-}
-```
-
-File: `src/solver/TablingSolver.ts`, `_checkOneChain`.
-
----
-
-### H13 — AlsSolver: ALS-XY-Chain depth capped at 5 RCs (✅ Bug A FIXED — depth 50); doubly-linked RC partner digit over-excluded (Bug B/C remain)
-
-**Bug A — depth limit:**
-
-Java's `AlsSolver.getStep(ALS_XY_CHAIN)` explicitly resets the chain array:
-```java
-if (chain.length != MAX_RC) chain = new RestrictedCommon[MAX_RC];  // MAX_RC = 50
-```
-So Java can follow up to **50 RC links** in a single ALS chain during `getStep` mode (effectively unlimited).
-
-TS `_alsChainDFS` returns null when `chain.length > 6`, limiting chains to **5 RCs / 6 ALS nodes**.
-
-Category F previously marked this as "ALS-XY-Chain depth = 6 ✓" — that was incorrect; the `6` default from `ALL_STEPS_ALS_CHAIN_LENGTH` applies only to the `getAllAlses` (find-all) mode, not to `getStep`.
-
-**Bug B — direction:**
-
-Java's `getStep` mode calls `finder.setRcOnlyForward(true)`, which means RCs are stored only for pairs where `als1.index < als2.index`. The chain search from any starting ALS can only reach higher-indexed ALS (monotonically increasing). TS adds both `(i→j)` and `(j→i)` directions to the adjacency map, so TS can traverse chains in any order. TS finds a strict superset of Java's ALS-XY-Chain steps (more complete).
-
-**Bug C — doubly-linked RC partner digit over-excluded from Z-candidate mask:**
-
-When the first (or last) link of a chain is a doubly-linked RC with digits `{d1, d2}` but only `d1` is the *active* RC digit for this chain traversal (Java's `actualRC = 1`), Java excludes **only `d1`** from the Z-elimination mask:
-```java
-c1 = firstRC.getCand1(); c2 = firstRC.getCand2();
-if (firstRC.getActualRC() == 1) { c2 = 0; }  // only cand1 active → cand2 not excluded
-checkCandidatesToDelete(startAls, aktAls, c1, c2, c3, c4, null);
-// inside: only masks where restr != -1 && restr != 0 are excluded;  c2=0 → not excluded
-```
-
-TS `_checkAlsChainElims` always excludes **both** `firstRcD` and `firstRcD2` (the partner):
-```ts
-let rcMask = (1 << firstRcD) | (1 << lastRcD);
-if (firstRcD2 > 0) rcMask |= (1 << firstRcD2);   // ← partner digit always excluded
-if (lastRcD2  > 0) rcMask |= (1 << lastRcD2);
-```
-
-**Scenario:** Chain `A —[d1(active), d2(partner)]→ B —...→ Z`. If digit `d2` is also a common candidate in both `A` (startAls) and `Z` (endAls), and buddies exist that see all `d2`-cells in both:
-- Java: `d2` is eligible for Z-elimination (not excluded — only `d1` is the active RC of the first link).
-- TS: `d2` is incorrectly excluded because `firstRcD2 = d2`.
-
-**Impact:** TS misses valid ALS-XY-Chain eliminations when a doubly-linked first or last RC exists and the partner digit is also a valid Z-candidate. ALS_XY_CHAIN is disabled in Java's default mode (H3), so only affects explicit enablement.
-
-**Fix (Bug A):** Change `if (chain.length > 6) return null` to a configurable limit (default 50).
-
-**Fix (Bug B):** Optionally make RC direction configurable (forward-only by default).
-
-**Fix (Bug C):** Do not include `d2` (partner digit) in `rcMask` when it is not the active RC digit. Track which RC digit is truly active (the one that passed the adjacency check) rather than blindly including the partner. Remove `if (firstRcD2 > 0) rcMask |= (1 << firstRcD2)` and `if (lastRcD2 > 0) rcMask |= (1 << lastRcD2)`:
-```ts
-// Only exclude the ACTIVE RC digit of the end links:
-let rcMask = (1 << firstRcD) | (1 << lastRcD);
-// Do NOT add firstRcD2 or lastRcD2 — partner digits are not active RCs in this chain
-```
-
-File: `src/solver/AlsSolver.ts`, `_findAlsChain`, `_alsChainDFS`, `_checkAlsChainElims`.
-
----
-
-### H14 — FishSolver: Kraken fish limited to basic fish; Java default includes Franken Kraken
-
-Java's `KRAKEN_MAX_FISH_TYPE = 1` means the Kraken fish search includes:
-- BASIC fish (rows/cols only)
-- FRANKEN fish (rows, cols, and one box cover or base)
-
-TS `_findKrakenFish` iterates only `for (const rowBase of [true, false])` with lines 0–8 (rows) and 9–17 (cols). No box-based cover or base candidates are included — TS searches **BASIC Kraken fish only**.
-
-**Impact:** TS misses Kraken Franken fish. Kraken fish is disabled in Java's default solve mode (H3), so this only matters for users who explicitly enable KRAKEN_FISH.
-
-**Fix:** Add a Franken Kraken search path that uses boxes as base or cover units, mirroring `_findFrankenFish` but with Kraken forcing-chain analysis.
-
-File: `src/solver/FishSolver.ts`, `_findKrakenFish`.
-
----
-
-### ✅ H16 — FIXED — ChainSolver: X-Chain / XY-Chain returns globally shortest chain (mirrors Java sort-by-length); 20-node cap retained for default mode.
-
-Java `ChainSolver` defines `MAX_CHAIN_LENGTH = 2 * Sudoku2.LENGTH = 162`. In **default mode** (`Options.RESTRICT_CHAIN_SIZE = true`, `RESTRICT_CHAIN_LENGTH = 20`) Java caps chains at 20 nodes — the same cap TS enforces. The TS hard-coded `chain.length >= 20` guard therefore matches Java's default behavior.
-
-**Length difference (non-default mode only):** When a user sets `RESTRICT_CHAIN_SIZE = false` in Java, the cap rises to the architectural `MAX_CHAIN_LENGTH = 162`. TS always hard-caps at 20 regardless of settings, so it would miss longer chains in that non-default mode.
-
-**Step-selection difference (always active):** Java collects *all* valid chains for a technique, sorts them by a custom comparator (shortest first), and returns the best. TS uses DFS and returns the *first* found chain (arbitrary DFS order). TS will return a valid chain, but it may not be the shortest or most "natural" one. This affects:
-- Which specific pattern is shown in results (cosmetic)
-- Difficulty score consistency: same technique always scores the same, but if TS and Java choose different chains, later techniques may differ (very minor)
-
-**Remote Pair is unaffected:** TS `_remotePairDFS` has no explicit cap (the natural constraint is the number of cells sharing the same bivalue pair), matching Java's `stackLevel >= 7` threshold correctly.
-
-**Impact:** Length divergence: edge-case, non-default mode only. Step-selection divergence: cosmetic, always present.
-
-**Fix:** Change `if (chain.length >= 20) return null` to use a configurable cap (default 20), and optionally collect all chains and return the shortest to match Java's step-selection.
-
----
-
-### H15 — ColoringSolver: MULTI_COLORS_2 detection is too restrictive (two interacting bugs)
-
-Java's `findMultiColorStepsForCandidate` uses ordered pairs `(i, j)` AND `(j, i)` in its outer loop and relies on `checkMultiColor1(set, s21, s22)` which requires "any cell in set sees s21" AND "any cell (possibly different) in set sees s22."
-
-TS `_findMultiColors` has two independent bugs for MULTI_COLORS_2:
-
-**Bug A — single-cell constraint too strict:**
-```ts
-// TS (too strict):
-const typeTwo = colorA.some(cA =>
-  colorB.some(cB => BUDDIES[cA].includes(cB)) &&
-  oppB.some(cOpp => BUDDIES[cA].includes(cOpp))
-);
-```
-TS requires one **single cell** of `colorA` to see BOTH `colorB` AND `oppB`. Java's `checkMultiColor1` only accumulates `seeS21` and `seeS22` across all cells in the set — the two halves can be seen by **different** cells. TS will miss any Type 2 case where no single cell of colorA sees both halves of the other pair, even though the combined set does.
-
-**Bug B — component j half never eliminated:**
-TS outer loop is `j > i` (unordered pairs), with `colorA` cycling only over `{a0, a1}` (halves of component[i]). The elimination target is always `colorA`, so only halves of component[i] can be eliminated. Java processes both ordered pairs `(i,j)` and `(j,i)`, so when processing `(j, i)` it also checks whether halves of component[j] see both halves of component[i] — and eliminates from component[j]. TS never puts component[j]'s halves in the `colorA` role, so it misses these eliminations entirely.
-
-**Impact:** TS may fail to find valid MULTI_COLORS_2 eliminations, leading to weaker solving in multi-colors-heavy puzzles. MULTI_COLORS is disabled in Java's default solve mode (H3), so this only affects users who explicitly enable it.
-
-**Fix:** Change Type 2 check to accumulate `seeHalf1` and `seeHalf2` across all cells (like Java's `checkMultiColor1`), and change the outer loop to iterate all ordered pairs `(i, j)` with `i ≠ j` (or equivalently, after `j > i` loop also check component[j]→component[i]).
-
-File: `src/solver/ColoringSolver.ts`, `_findMultiColors`.
-
----
-
-### ✅ H17 — FIXED — FishSolver: Franken fish capped at size 4; Mutant fish capped at size 3 (Java allows up to size 6)
-
-`_findFrankenFish` contains an early-return guard:
-```ts
-if (size > 4) return null;
-```
-`_findMutantFish` contains a similar guard:
-```ts
-if (size > 3) return null;
-```
-
-Java's `FishSolver` uses `FRANKEN_TYPES` and `MUTANT_TYPES` arrays that include sizes 2–6 (`FRANKEN_LEVIATHAN` / `MUTANT_LEVIATHAN`):
-```java
-private static final SolutionType[] FRANKEN_TYPES = {
-    FRANKEN_X_WING, FRANKEN_SWORDFISH, FRANKEN_JELLYFISH,
-    FRANKEN_SQUIRMBAG, FRANKEN_WHALE, FRANKEN_LEVIATHAN  // sizes 2–7
-};
-```
-No size cap guard exists in Java — all sizes are delegated to `getFishes`.
-
-**Impact:** The following techniques are in `TECHNIQUE_ORDER` with dispatched calls but always silently return null:
-- Franken size 5: `FRANKEN_SQUIRMBAG`, `FINNED_FRANKEN_SQUIRMBAG`, `SASHIMI_FRANKEN_SQUIRMBAG`
-- Franken size 6: `FRANKEN_WHALE`, `FINNED_FRANKEN_WHALE`, `SASHIMI_FRANKEN_WHALE`
-- Franken size 7: `FRANKEN_LEVIATHAN`, `FINNED_FRANKEN_LEVIATHAN`, `SASHIMI_FRANKEN_LEVIATHAN`
-- Mutant size 4: `MUTANT_JELLYFISH`, `FINNED_MUTANT_JELLYFISH`, `SASHIMI_MUTANT_JELLYFISH`
-- Mutant size 5–7: Squirmbag, Whale, Leviathan variants
-
-All of these are disabled in Java's default solve mode (H3), so this only matters when those techniques are explicitly enabled. These are also extremely rare in practice, but the systematic null return is an avoidable divergence.
-
-**Fix:** Remove the `size > 4` guard in `_findFrankenFish` and the `size > 3` guard in `_findMutantFish`, and ensure `_searchGeneralFish` is robust for sizes 5–6.
-
-File: `src/solver/FishSolver.ts`, `_findFrankenFish` (line ~283), `_findMutantFish` (line ~305).
-
----
-
-### H19 — SingleDigitPatternSolver: `_collectEmptyRectangles` requires ≥2 in BOTH arms; Java only requires ≥2 in AT LEAST ONE
-
-TS's `_collectEmptyRectangles` filters with:
-```ts
-if (boxCells.filter(c => Sudoku2.col(c) === erCol).length < 2) continue;
-if (boxCells.filter(c => Sudoku2.row(c) === erRow).length < 2) continue;
-```
-This requires **both** the row-arm and the col-arm of the ER cross to contain ≥2 candidates.
-
-Java's equivalent check uses `notEnoughCandidates = true` and clears it when EITHER arm has ≥2; it only skips when BOTH arms have <2 (guarded by `allowErsWithOnlyTwoCandidates = false` by default).
-
-**Missed ER variant:** A box with candidates like `{(r0,c2), (r1,c0), (r2,c0)}` (erRow=r0, erCol=c0) is a valid ER: all candidates are on the cross, erCol arm has 2 cells, but erRow arm has only 1 cell `(r0,c2)`. Java proceeds to `checkEmptyRectangle` and can find a valid elimination via a conjugate pair in col c2 with one cell in r0. TS skips this box entirely because erRow arm count = 1.
-
-**Impact:** TS misses some EMPTY_RECTANGLE eliminations on puzzles whose ER box has a "single-arm" shape. EMPTY_RECTANGLE is enabled in Java's default solve mode, so this affects normal solving results.
-
-**Fix:** Require ≥2 in AT LEAST ONE arm (matching Java's `notEnoughCandidates` logic):
-```ts
-const rowArmCount = boxCells.filter(c => Sudoku2.row(c) === erRow).length;
-const colArmCount = boxCells.filter(c => Sudoku2.col(c) === erCol).length;
-if (rowArmCount < 2 && colArmCount < 2) continue; // both arms short → skip
-```
-
-File: `src/solver/SingleDigitPatternSolver.ts`, `_collectEmptyRectangles`.
-
----
-
-### H20 — WingSolver `_findWWing`: strong-link cells excluded from eliminations
-
-In Java's `getWWing`, the `elimSet` is computed as all cells that (a) see both bivalue cells `ci`/`cj` and (b) hold the elimination candidate `c1`. The strong-link bridge cells (`wIndex1`, `wIndex2`) are **not** explicitly excluded from `elimSet`. If a bridge cell has `c1` AND sees both `ci` and `cj`, Java eliminates `c1` from it.
-
-In TS `_findWWing`:
-```ts
-if (cell === cj || cell === linkA || cell === linkB) continue;
-```
-`linkA` and `linkB` are always skipped, even when they hold `elim` and see both bivalue cells.
-
-**Why Java is correct:** The W-Wing proof guarantees at least one of `ci`/`cj` equals `c1`. A cell seeing both must therefore see a cell that equals `c1`, so it cannot itself be `c1`. This applies to any cell seeing both bivalue cells — including the link cells.
-
-**Impact:** Rare in practice (requires a bridge cell to have `c1` AND be a buddy of both `ci` and `cj`), but when it occurs TS misses a valid W-Wing elimination. **W_WING is enabled by default.**
-
-**Fix:** Remove `cell === linkA || cell === linkB` from the skip condition in the elimination loop.
-
-File: `src/solver/WingSolver.ts`, `_findWWing`.
-
----
-
-### H21 — TablingSolver `_expandTablesWithGroups`: missing group-to-group strong link
-
-Java's `fillTablesWithGroupNodes` explicitly handles a **group-to-group strong link**: when all remaining `d`-candidates in a house are covered by exactly two non-overlapping group nodes G1 and G2 (no singletons remain), then G1-OFF implies G2-ON:
-
-```java
-if (lineAnz == 1) {               // exactly one other group in same row
-    tmpSet = (row d-cands) - G1.indices - G2.indices;
-    if (tmpSet.isEmpty()) {
-        offEntry.addEntry(G2, gn.cand, true);  // G1-OFF → G2-ON
-    }
-}
-// same for cols and blocks
-```
-
-TS `_expandTablesWithGroups` only fires a "group-OFF → cell-ON" implication when **exactly 1 single candidate** remains in the house after all group cells go OFF:
-
-```ts
-if (remaining.length === 1 && dest.addSet(remaining[0], d)) { ... }
-```
-
-When `remaining` holds 2+ cells belonging to a second group G2, `remaining.length === 2`, the condition fails, and the G1-OFF → G2-ON strong link is **never generated**.
-
-**Impact:** GROUPED_NICE_LOOP / GROUPED_AIC steps requiring a group-to-group strong link are missed. Affects only puzzles where a house's `d`-candidates are partitioned into exactly two non-singleton groups. Java's GROUPED_NICE_LOOP is disabled by default (H3).
-
-**Correct fix:** When G1 is fully OFF and `remaining` cells all belong to a single other group G2 (same size), fire **G2-ON implications** by deleting `d` from all cells in G2's buddy set — i.e., cells that can see ALL of G2:
-
-```ts
-if (remaining.length > 1) {
-  const g2 = groupsByDigit[d].find(
-    gn => gn !== g && gn.cells.length === remaining.length
-       && remaining.every(c => gn.cells.includes(c))
-  );
-  if (g2) {
-    // G2 is forced ON: delete d from every cell that sees all of G2
-    const g2Buddies = g2.cells.reduce(
-      (acc, c) => acc.filter(b => Sudoku2.BUDDIES[c].includes(b)),
-      Array.from({ length: 81 }, (_, i) => i) as number[]
-    );
-    for (const bCell of g2Buddies) {
-      if (bCell === g2.cells[0] || g2.cells.includes(bCell)) continue; // skip G2 cells themselves
-      if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d)) continue;
-      if (dest.addDel(bCell, d)) {
-        this._groupImplicationFired = true;
-        queue.push({ cell: bCell, d, isOn: false });
-        for (const gk of groupsByDigit[d]) {
-          if (gk.cells.includes(bCell)) checkGroupOff(gk, dest, queue);
-        }
-      }
-    }
-  }
-}
-```
-
-> **Note:** The proposed fix in the previous draft (`addSet` for each G2 cell) was **incorrect**: it would mark ALL of G2's cells as `d = true`, which implies d appears in each cell individually and would wrongly propagate cell-level ON consequences. The group merely establishes that `d` is somewhere in G2 — which only justifies deleting `d` from cells that see the ENTIRE group (G2-buddies). G2 is **not** a GROUP_NODE chain entry in TS (unlike Java), so no chain-node-level representation is produced; only the buddy-deletion propagation is warranted.
-
-**Also missing — G1-ON → G2-OFF weak link** (handled correctly via individual-cell BFS): when any cell of G1 goes ON in the BFS, all cells in the same house lose `d` including all G2 cells, which then triggers `checkGroupOff` for G2 normally. ✅
-
-File: `src/solver/TablingSolver.ts`, `_expandTablesWithGroups` → `checkGroupOff`.
-
----
-
-### H22 — TablingSolver `_expandTablesWithGroups`: missing singleton-OFF → group-ON implication
-
-Java's `fillTablesWithGroupNodes` pre-computes the **reverse link** for every singleton/group pair in a house:
-
-```java
-// When singleton S and group G are the only d-candidates in a house:
-offTable[S * 10 + gn.cand].addEntry(G_ON);  // S-OFF → G-ON
-```
-
-This means: when S (a non-group single candidate) goes OFF in a chain, and S + G exhaust all `d`-candidates in its house, the group G is forced ON — `d` must be in one of G's cells. Java then propagates G-ON → delete `d` from all G-buddy cells.
-
-TS's `_expandTablesWithGroups` only activates `checkGroupOff` when a cell that IS A MEMBER of the group goes OFF:
-
-```ts
-for (const g of groupsByDigit[d2]) {
-    if (g.cells.includes(c2)) checkGroupOff(g, dest, queue);
-}
-```
-
-When singleton S goes OFF in the BFS (S is NOT a group cell), `g.cells.includes(S)` is always false, so no group-level implication fires. The chain S-OFF → G-ON → G-buddy deletions is entirely absent from TS.
-
-**Impact:** Chains of the form *[... → S is deleted → G is forced into its house → G-buddy cell loses d → ...]* are not generated by TS. This affects GROUPED_NICE_LOOP steps with this specific pattern. Java's GROUPED family is disabled by default (H3).
-
-**Fix:** When processing a non-group cell deletion `(c2, d2)` in the BFS queue, check each house of `c2`. If all remaining `d2`-candidates in that house (excluding `c2`) are exactly the cells of some group G (no singletons), fire G-ON by deleting `d2` from G's buddy set:
-
-```ts
-// inside the BFS loop, after addDel(c2, d2) in _expandTablesWithGroups:
-// Check if c2's elimination makes a group the sole remaining d-source in any house
-for (const hIdx of CELL_HOUSES[c2]) {
-  for (const g of groupsByDigit[d2]) {
-    const hCells = HOUSE_CELLS[hIdx] as number[];
-    if (!g.cells.some(c => hCells.includes(c))) continue;          // G not in this house
-    const remaining = hCells.filter(
-      c => !g.cells.includes(c) && s.values[c] === 0 && s.isCandidate(c, d2) && !dest.offSets[d2].has(c)
-    );
-    if (remaining.length === 0) {
-      // All non-G candidates in house are gone → G is forced ON
-      // Delete d2 from all cells that see the entire group G
-      const buddies = g.cells.reduce(
-        (acc, gc) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
-        HOUSE_CELLS[hIdx].filter(c => !g.cells.includes(c)) as number[]
-      );
-      for (const bCell of buddies) {
-        if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d2)) continue;
-        if (dest.addDel(bCell, d2)) {
-          this._groupImplicationFired = true;
-          queue.push({ cell: bCell, d: d2, isOn: false });
-          for (const gk of groupsByDigit[d2]) {
-            if (gk.cells.includes(bCell)) checkGroupOff(gk, dest, queue);
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-File: `src/solver/TablingSolver.ts`, `_expandTablesWithGroups` BFS inner loop.
-
----
-
-### H18 — TablingSolver `_expandTablesWithAls`: missing "buddy forcing" when ALS eliminates all-but-one candidate from a multi-candidate cell
-
-Java's `fillTablesWithAls` includes a final pass over every ALS buddy cell after computing the ALS eliminations:
-```java
-// if buddy cell has ≥3 candidates and ALS removes all-but-one → force it ON
-for (int k = 0; k < als.buddies.size(); k++) {
-    ...getCandidateSet(cellIndex, tmpSet1);
-    for l in 1..9: if alsEliminations[l].contains(cellIndex): tmpSet1.remove(l);
-    if (tmpSet1.size() == 1) offEntry.addEntry(cellIndex, tmpSet1.get(0), ..., true); // forced ON
-}
-```
-(Skips cells with exactly 2 candidates since those are already handled by normal table entries.)
-
-TS `_expandTablesWithAls` only fires ALS exit-digit deletions (`buddiesFor[z]`); it never checks whether those deletions together reduce a buddy cell to a single remaining candidate, so it never generates the corresponding forced-ON implication.
-
-**Impact:** Chains of the form: *[ALS fires → eliminates two candidates from cell X → X is a naked single → X forces further deletions]* are missed in TS. This is an extremely rare scenario (cell must have ≥3 candidates, ALS must eliminate ≥2 of them, and the remaining single candidate must close a pattern). Only relevant for GROUPED_NICE_LOOP and (for TS, unconditionally) GROUPED_DISCONTINUOUS_NICE_LOOP / FORCING_CHAIN / FORCING_NET. All of these are disabled in Java's default mode (H3).
-
-**Fix:** After `checkAlsOff` fires in the BFS, scan the ALS's buddy cells (union of `buddiesFor[z]` for all exit z) and check if total currently-deleted candidates leave exactly 1 remaining candidate in any of them; if so, add a forced-ON (`dest.addSet`) entry.
-
-File: `src/solver/TablingSolver.ts`, `_expandTablesWithAls`.
-
----
-
-### H23 — ColoringSolver `_findSimpleColors`: SIMPLE_COLORS_TRAP returns only 1 elimination per step instead of all
-
-Java's `checkCandidateToDelete(set1, set2, cand)` accumulates **all** cells seeing both color halves before creating the step:
-
-```java
-deleteSet.clear();
-for (int i = 0; i < set1.size(); i++) {
-    for (int j = 0; j < set2.size(); j++) {
-        tmpSet1.set(Sudoku2.buddies[set1.get(i)]);
-        tmpSet1.and(Sudoku2.buddies[set2.get(j)]);
-        tmpSet1.and(finder.getCandidates()[cand]);
-        deleteSet.or(tmpSet1);  // accumulates ALL matching cells
-    }
-}
-// then addCandidateToDelete for every cell in deleteSet
-if (!deleteSet.isEmpty()) {
-    globalStep.addType(type);
-    for each cell in deleteSet: globalStep.addCandidateToDelete(cell, cand);
-    steps.add(globalStep.clone());
-}
-```
-
-TS `_findSimpleColors` iterates cells 0–80 and returns immediately upon finding the **first** cell satisfying `seesC0 && seesC1`:
-
-```ts
-for (let cell = 0; cell < 81; cell++) {
-    ...
-    if (seesC0 && seesC1) {
-        if (requestedType === SolutionType.SIMPLE_COLORS_WRAP) continue;
-        return {
-            type: SolutionType.SIMPLE_COLORS_TRAP,
-            placements: [],
-            candidatesToDelete: [{ index: cell, value: d as Digit }],  // ONE cell only
-        };
-    }
-}
-```
-
-**Secondary WRAP edge case:** If both color halves of a component wrap simultaneously (extremely rare), Java combines all wrapped cells from both halves in one WRAP step. TS checks them sequentially and returns on the first wrapping half found; the other half's wrapped cells are found on the next solver call.
-
-**Impact:** SIMPLE_COLORS is enabled by default. Puzzles where multiple cells see both color halves trigger multiple SIMPLE_COLORS_TRAP steps in TS where Java uses one. Each small step adds to the difficulty score (150 pts each), and after each partial elimination the solver re-runs from the top of `TECHNIQUE_ORDER`, potentially applying a different technique before finishing the trap cluster — altering the solving path.
-
-**Fix:** Collect all trap eliminations before returning instead of returning on first found:
-
-```ts
-// Replace early-return with accumulation:
-const trapDels: Candidate[] = [];
-for (let cell = 0; cell < 81; cell++) {
-    if (!candidates[d].includes(cell)) continue;
-    const seesC0 = c0.some(cc => Sudoku2.BUDDIES[cc].includes(cell));
-    const seesC1 = c1.some(cc => Sudoku2.BUDDIES[cc].includes(cell));
-    if (seesC0 && seesC1) trapDels.push({ index: cell, value: d as Digit });
-}
-if (trapDels.length > 0) {
-    if (requestedType !== SolutionType.SIMPLE_COLORS_WRAP) {
-        return { type: SolutionType.SIMPLE_COLORS_TRAP, placements: [], candidatesToDelete: trapDels };
-    }
-}
-```
-
-File: `src/solver/ColoringSolver.ts`, `_findSimpleColors`.
-
----
 
 ## Notes on Helper Classes

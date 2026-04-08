@@ -182,6 +182,8 @@ export class TemplateSolver extends AbstractSolver {
     const ta = _TA!, tb = _TB!, tc = _TC!;
     const n = _TC_LEN;
 
+    // Collect valid template indices per digit (initial per-digit filter).
+    const validIdx: number[][] = Array.from({ length: 10 }, () => []);
     for (let i = 0; i < n; i++) {
       const ia = ta[i], ib = tb[i], ic = tc[i];
       for (let d = 1; d <= 9; d++) {
@@ -193,13 +195,56 @@ export class TemplateSolver extends AbstractSolver {
         if ((forb_a[d] & ia) !== 0) continue;
         if ((forb_b[d] & ib) !== 0) continue;
         if ((forb_c[d] & ic) !== 0) continue;
-        // Valid template for d
+        validIdx[d].push(i);
+      }
+    }
+
+    // Recompute svt (AND) and dct (OR) for digit d from its validIdx list.
+    const recomputeSvt = (d: number): void => {
+      svtInit[d] = 0;
+      svt_a[d] = 0; svt_b[d] = 0; svt_c[d] = 0;
+      dct_a[d] = 0; dct_b[d] = 0; dct_c[d] = 0;
+      for (const i of validIdx[d]) {
+        const ia = ta[i], ib = tb[i], ic = tc[i];
         dct_a[d] |= ia; dct_b[d] |= ib; dct_c[d] |= ic;
         if (!svtInit[d]) {
-          svt_a[d] = ia; svt_b[d] = ib; svt_c[d] = ic;
-          svtInit[d] = 1;
+          svt_a[d] = ia; svt_b[d] = ib; svt_c[d] = ic; svtInit[d] = 1;
         } else {
           svt_a[d] &= ia; svt_b[d] &= ib; svt_c[d] &= ic;
+        }
+      }
+    };
+
+    // Initial svt/dct from collected indices.
+    for (let d = 1; d <= 9; d++) recomputeSvt(d);
+
+    // ── Cross-digit iterative refinement (H6) ─────────────────────────────
+    // A template for digit j that places j in a cell forced to contain
+    // another digit k (i.e., the cell is in svt[k]) is contradictory.
+    // Remove such templates and repeat until stable.
+    // Mirrors Java's SudokuStepFinder.initTemplates() refinement loop.
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let j = 1; j <= 9; j++) {
+        const list = validIdx[j];
+        let wi = 0;
+        for (const i of list) {
+          const ia = ta[i], ib = tb[i], ic = tc[i];
+          let ok = true;
+          for (let k = 1; k <= 9; k++) {
+            if (k === j || !svtInit[k]) continue;
+            // Template overlaps with cells forced to contain k → contradiction
+            if ((svt_a[k] & ia) !== 0 || (svt_b[k] & ib) !== 0 || (svt_c[k] & ic) !== 0) {
+              ok = false; break;
+            }
+          }
+          if (ok) list[wi++] = i;
+        }
+        if (wi < list.length) {
+          list.length = wi;
+          recomputeSvt(j);
+          changed = true;
         }
       }
     }

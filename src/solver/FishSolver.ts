@@ -83,7 +83,7 @@ export class FishSolver extends AbstractSolver {
     if (type === SolutionType.KRAKEN_FISH ||
         type === SolutionType.KRAKEN_FISH_TYPE_1 ||
         type === SolutionType.KRAKEN_FISH_TYPE_2) {
-      return this._findKrakenFish(type);
+      return this._findKrakenFish(type) ?? this._findKrakenFrankenFish(type);
     }
 
     return null;
@@ -570,6 +570,130 @@ export class FishSolver extends AbstractSolver {
                         coverEntities: coverCombo.map(ln => (rowBase
                           ? { type: 'col' as const, index: ln }
                           : { type: 'row' as const, index: ln })),
+                      };
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  // ── Kraken Franken fish ───────────────────────────────────────────────────
+  //
+  // Extends Franken fish (base = rows or cols, cover includes ≥1 box)
+  // using forcing-chain analysis (same Kraken logic as basic Kraken).
+  // Mirrors Java KRAKEN_MAX_FISH_TYPE = 1.
+  // ---------------------------------------------------------------------------
+
+  private _findKrakenFrankenFish(
+    type: typeof SolutionType[keyof typeof SolutionType],
+  ): SolutionStep | null {
+    if (!this._tabling) return null;
+
+    const s = this.sudoku;
+    const HOUSES = Sudoku2.HOUSES;
+    const wantType1 = type !== SolutionType.KRAKEN_FISH_TYPE_2;
+    const wantType2 = type !== SolutionType.KRAKEN_FISH_TYPE_1;
+
+    const toEntity = (h: number): EntityRef =>
+      h < 9  ? { type: 'row' as const, index: h } :
+      h < 18 ? { type: 'col' as const, index: h - 9 } :
+               { type: 'box' as const, index: h - 18 };
+
+    for (let d = 1; d <= 9; d++) {
+      // Pre-compute d-candidates for each of the 27 houses.
+      const hCells: number[][] = Array.from({ length: 27 }, (_, h) =>
+        (HOUSES[h] as readonly number[]).filter(
+          c => s.values[c] === 0 && s.isCandidate(c, d),
+        ),
+      );
+
+      for (let size = 2; size <= 4; size++) {
+        // Franken: base is all-rows OR all-cols; cover must include ≥1 box.
+        for (const rowBase of [true, false]) {
+          const basePool = Array.from({ length: 9 }, (_, i) => rowBase ? i : 9 + i)
+            .filter(h => hCells[h].length >= 1);
+
+          // Cover pool: perpendicular lines + boxes.
+          // rowBase=true  → cols (9–17) + boxes (18–26)
+          // rowBase=false → rows (0–8)  + boxes (18–26)
+          const coverPool = Array.from({ length: 27 }, (_, i) => i).filter(h => {
+            if (hCells[h].length === 0) return false;
+            return rowBase ? h >= 9 : (h < 9 || h >= 18);
+          });
+
+          for (const baseComb of kCombos(basePool, size)) {
+            const baseCells = new Set<number>();
+            for (const h of baseComb) for (const c of hCells[h]) baseCells.add(c);
+            if (baseCells.size === 0) continue;
+
+            const baseSet = new Set(baseComb);
+            const covPool = coverPool.filter(h => !baseSet.has(h));
+
+            for (const coverComb of kCombos(covPool, size)) {
+              // Franken constraint: ≥1 box in cover.
+              if (!coverComb.some(h => h >= 18)) continue;
+
+              const coverCells = new Set<number>();
+              for (const h of coverComb) for (const c of hCells[h]) coverCells.add(c);
+
+              // Fin cells: in base but not in cover.
+              const finCells: number[] = [];
+              for (const c of baseCells) if (!coverCells.has(c)) finCells.push(c);
+              if (finCells.length === 0) continue;
+
+              // Fins must all be in the same box.
+              const finBox = Sudoku2.box(finCells[0]);
+              if (!finCells.every(f => Sudoku2.box(f) === finBox)) continue;
+
+              // ── Kraken Type 1 ───────────────────────────────────────────
+              if (wantType1) {
+                const toElim: number[] = [];
+                for (const c of coverCells) {
+                  if (baseCells.has(c)) continue;
+                  if (s.values[c] !== 0 || !s.isCandidate(c, d)) continue;
+                  // Already eliminated by finned fish if all fins see c.
+                  if (finCells.every(f => Sudoku2.BUDDIES[c].includes(f))) continue;
+                  if (this._tabling!.krakenCheck(finCells, d, c)) toElim.push(c);
+                }
+                if (toElim.length > 0) {
+                  const retType = type === SolutionType.KRAKEN_FISH
+                    ? SolutionType.KRAKEN_FISH_TYPE_1 : type;
+                  return {
+                    type: retType,
+                    placements: [],
+                    candidatesToDelete: toElim.map(c => ({ index: c, value: d as Digit })),
+                    fins: finCells.map(c => ({ index: c, value: d as Digit })),
+                    baseEntities: baseComb.map(toEntity),
+                    coverEntities: coverComb.map(toEntity),
+                  };
+                }
+              }
+
+              // ── Kraken Type 2 ───────────────────────────────────────────
+              if (wantType2) {
+                for (const covH of coverComb) {
+                  const coverCands = hCells[covH];
+                  const baseCands = coverCands.filter(c => baseCells.has(c));
+                  if (baseCands.length === coverCands.length) continue;
+                  const premiseCells = [...new Set([...baseCands, ...finCells])];
+                  for (let ec = 1; ec <= 9; ec++) {
+                    const targets = this._tabling!.krakenCheckType2(premiseCells, d, ec);
+                    if (targets.length > 0) {
+                      const retType = type === SolutionType.KRAKEN_FISH
+                        ? SolutionType.KRAKEN_FISH_TYPE_2 : type;
+                      return {
+                        type: retType,
+                        placements: [],
+                        candidatesToDelete: targets.map(c => ({ index: c, value: ec as Digit })),
+                        fins: finCells.map(c => ({ index: c, value: d as Digit })),
+                        baseEntities: baseComb.map(toEntity),
+                        coverEntities: coverComb.map(toEntity),
                       };
                     }
                   }

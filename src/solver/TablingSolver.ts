@@ -338,7 +338,7 @@ export class TablingSolver extends AbstractSolver {
       const d = g.digit;
       // All group cells except the one just added must also be in offSets[d].
       if (!g.cells.every(c => dest.offSets[d].has(c))) return;
-      // Group is fully OFF — check for solo positions.
+      // Group is fully OFF — check for solo positions and group-to-group links.
       const solveHouse = (houseIdx: number): void => {
         const remaining: number[] = (HOUSE_CELLS[houseIdx] as number[]).filter(
           c => !g.cells.includes(c) && s.values[c] === 0 && s.isCandidate(c, d),
@@ -346,6 +346,33 @@ export class TablingSolver extends AbstractSolver {
         if (remaining.length === 1 && dest.addSet(remaining[0], d)) {
           this._groupImplicationFired = true;
           queue.push({ cell: remaining[0], d, isOn: true });
+        } else if (remaining.length > 1) {
+          // H21: group-to-group strong link — check if chain eliminations leave
+          // only the cells of a second group G2 as the sole d-source in this house.
+          const chainRemaining = remaining.filter(c => !dest.offSets[d].has(c));
+          if (chainRemaining.length > 1) {
+            const g2 = groupsByDigit[d].find(
+              gn => gn !== g && gn.cells.length === chainRemaining.length
+                 && chainRemaining.every(c => gn.cells.includes(c)),
+            );
+            if (g2) {
+              // G2 is forced ON: delete d from cells that see ALL of G2.
+              const g2Buddies = g2.cells.reduce(
+                (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
+                (HOUSE_CELLS[houseIdx] as number[]).filter(c => !g2.cells.includes(c)),
+              );
+              for (const bCell of g2Buddies) {
+                if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
+                if (dest.addDel(bCell, d)) {
+                  this._groupImplicationFired = true;
+                  queue.push({ cell: bCell, d, isOn: false });
+                  for (const gk of groupsByDigit[d]) {
+                    if (gk.cells.includes(bCell)) checkGroupOff(gk, dest, queue);
+                  }
+                }
+              }
+            }
+          }
         }
       };
       if (g.row >= 0)  solveHouse(g.row);
@@ -384,6 +411,40 @@ export class TablingSolver extends AbstractSolver {
                 for (const g of groupsByDigit[d2]) {
                   if (g.cells.includes(c2)) checkGroupOff(g, dest, queue);
                 }
+                // H22: Singleton-OFF → Group-ON: if c2 is not a group member,
+                // its elimination may force a group in one of c2's houses.
+                if (!groupsByDigit[d2].some(g => g.cells.includes(c2))) {
+                  for (const houseIdx of [
+                    Sudoku2.row(c2),
+                    9  + Sudoku2.col(c2),
+                    18 + Sudoku2.box(c2),
+                  ]) {
+                    for (const g of groupsByDigit[d2]) {
+                      if (!(HOUSE_CELLS[houseIdx] as number[]).some(hc => g.cells.includes(hc))) continue;
+                      const rem = (HOUSE_CELLS[houseIdx] as number[]).filter(
+                        hc => !g.cells.includes(hc) && s.values[hc] === 0
+                           && s.isCandidate(hc, d2) && !dest.offSets[d2].has(hc),
+                      );
+                      if (rem.length === 0) {
+                        // G forced ON — delete d2 from cells that see all of G.
+                        const gBuddies = g.cells.reduce(
+                          (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
+                          (HOUSE_CELLS[houseIdx] as number[]).filter(hc => !g.cells.includes(hc)),
+                        );
+                        for (const bCell of gBuddies) {
+                          if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d2) || dest.offSets[d2].has(bCell)) continue;
+                          if (dest.addDel(bCell, d2)) {
+                            this._groupImplicationFired = true;
+                            queue.push({ cell: bCell, d: d2, isOn: false });
+                            for (const gk of groupsByDigit[d2]) {
+                              if (gk.cells.includes(bCell)) checkGroupOff(gk, dest, queue);
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -410,6 +471,7 @@ export class TablingSolver extends AbstractSolver {
     alses: Als[],
   ): void {
     if (alses.length === 0) return;
+    const s = this.sudoku;
 
     // Build per-cell+digit → ALS lookup  (which ALS have cell c as a cellsFor[e] member)
     type AlsEntry = { als: Als; e: number };
@@ -455,6 +517,34 @@ export class TablingSolver extends AbstractSolver {
             this._alsImplicationFired = true;
             queue.push({ cell: b, d: z, isOn: false });
           }
+        }
+      }
+      // H18: ALS buddy forcing — if exit-digit deletions reduce a buddy cell
+      // to 1 remaining candidate, that cell is forced ON for that candidate.
+      // Only applies to cells with ≥3 original candidates; bivalue cells are
+      // already handled by normal table fill.  (Mirrors Java fillTablesWithAls.)
+      const alsBuddies = new Set<number>();
+      for (let z = 1; z <= 9; z++) {
+        if (z === e || !(als.candMask & (1 << z))) continue;
+        for (const b of als.buddiesFor[z]) alsBuddies.add(b);
+      }
+      for (const cell of alsBuddies) {
+        if (s.values[cell] !== 0) continue;
+        let origCount = 0;
+        for (let dd = 1; dd <= 9; dd++) if (s.isCandidate(cell, dd)) origCount++;
+        if (origCount <= 2) continue; // bivalue already covered by normal tables
+        let lastRemaining = -1;
+        let multiRemaining = false;
+        for (let dd = 1; dd <= 9; dd++) {
+          if (!s.isCandidate(cell, dd)) continue;
+          if (!dest.offSets[dd].has(cell)) {
+            if (lastRemaining !== -1) { multiRemaining = true; break; }
+            lastRemaining = dd;
+          }
+        }
+        if (!multiRemaining && lastRemaining > 0 && dest.addSet(cell, lastRemaining)) {
+          this._alsImplicationFired = true;
+          queue.push({ cell, d: lastRemaining, isOn: true });
         }
       }
     };

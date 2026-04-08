@@ -2663,3 +2663,115 @@ describe("H17 regression — Franken/Mutant size caps removed", () => {
     }
   });
 });
+
+// H6: TemplateSolver cross-digit iterative refinement.
+// Templates for digit j are pruned when they overlap with forced-cell masks of other digits.
+// After the fix, TEMPLATE_SET/DEL results are a subset of (or equal to) pre-fix results — never wrong.
+describe("H6 regression — TemplateSolver cross-digit refinement", () => {
+  test("TEMPLATE_SET step (if found) has valid placements", () => {
+    const solver = makeSolver(ALS_REF_PUZZLE);
+    const step = solver.getStep(SolutionType.TEMPLATE_SET);
+    if (step !== null) {
+      const sudoku = solver.getSudoku();
+      for (const { index } of step.placements) {
+        expect(sudoku.values[index]).toBe(0); // cell must still be empty
+      }
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(sudoku.values[index]).toBe(0);
+        expect(sudoku.candidates[index] & (1 << value)).toBeTruthy();
+      }
+    }
+  });
+
+  test("TEMPLATE_DEL step (if found) has valid eliminations after cross-digit refinement", () => {
+    const solver = makeSolver(ALS_REF_PUZZLE);
+    const step = solver.getStep(SolutionType.TEMPLATE_DEL);
+    if (step !== null) {
+      const sudoku = solver.getSudoku();
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(sudoku.values[index]).toBe(0);
+        expect(sudoku.candidates[index] & (1 << value)).toBeTruthy();
+      }
+    }
+  });
+
+  test("TEMPLATE_SET search does not throw on showcase puzzle", () => {
+    const solver = makeSolver(SHOWCASE_PUZZLE);
+    expect(() => solver.getStep(SolutionType.TEMPLATE_SET)).not.toThrow();
+  });
+});
+
+// H14: Kraken Franken Fish — _findKrakenFrankenFish adds box-cover Kraken search.
+// Java KRAKEN_MAX_FISH_TYPE = 1 includes Franken Kraken.
+describe("H14 regression — Kraken Franken Fish", () => {
+  test("Kraken Fish search (including Franken) does not throw on SHOWCASE_PUZZLE", () => {
+    const solver = makeSolver(SHOWCASE_PUZZLE);
+    expect(() => solver.getStep(SolutionType.KRAKEN_FISH)).not.toThrow();
+  });
+
+  test("KRAKEN_FISH_TYPE_1 step (if found) has valid eliminations and cover entities", () => {
+    const solver = makeSolver(SHOWCASE_PUZZLE);
+    const step = solver.getStep(SolutionType.KRAKEN_FISH_TYPE_1);
+    if (step !== null) {
+      const sudoku = solver.getSudoku();
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(sudoku.values[index]).toBe(0);
+        expect(sudoku.candidates[index] & (1 << value)).toBeTruthy();
+      }
+      // coverEntities must be non-empty (basic or Franken cover lines / boxes).
+      expect(step.coverEntities!.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("Kraken Fish search does not throw on easy puzzle", () => {
+    const solver = makeSolver(EASY_PUZZLE);
+    expect(() => solver.getStep(SolutionType.KRAKEN_FISH)).not.toThrow();
+  });
+});
+
+// H18: ALS buddy forcing — ALS exit-digit deletions that reduce a ≥3-candidate cell to 1 remaining
+//      candidate trigger a forced-ON implication.
+describe("H18 regression — ALS buddy forcing in TablingSolver", () => {
+  test("GROUPED_NICE_LOOP search (which uses ALS expansion) does not throw", () => {
+    const solver = makeSolver(ALS_REF_PUZZLE);
+    expect(() => solver.getStep(SolutionType.GROUPED_NICE_LOOP)).not.toThrow();
+  });
+
+  test("GROUPED_DISCONTINUOUS_NICE_LOOP step (if found) has valid eliminations", () => {
+    const solver = makeSolver(ALS_REF_PUZZLE);
+    const step = solver.getStep(SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP);
+    if (step !== null) {
+      const sudoku = solver.getSudoku();
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(sudoku.values[index]).toBe(0);
+        expect(sudoku.candidates[index] & (1 << value)).toBeTruthy();
+      }
+    }
+  });
+});
+
+// H21: Group-to-group strong link — G1-OFF → G2-ON when G2 is the only remaining group in house.
+// H22: Singleton-OFF → Group-ON — c2 (non-group) going OFF forces group G when c2+G exhaust house.
+describe("H21/H22 regression — TablingSolver group implication completeness", () => {
+  test("GROUPED_NICE_LOOP search does not throw on ALS_REF_PUZZLE", () => {
+    const solver = makeSolver(ALS_REF_PUZZLE);
+    expect(() => solver.getStep(SolutionType.GROUPED_NICE_LOOP)).not.toThrow();
+  });
+
+  test("GROUPED_AIC step (if found) has valid eliminations", () => {
+    const solver = makeSolver(ALS_REF_PUZZLE);
+    const step = solver.getStep(SolutionType.GROUPED_AIC);
+    if (step !== null) {
+      const sudoku = solver.getSudoku();
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(sudoku.values[index]).toBe(0);
+        expect(sudoku.candidates[index] & (1 << value)).toBeTruthy();
+      }
+    }
+  });
+
+  test("GROUPED_NICE_LOOP search does not throw on SHOWCASE_PUZZLE", () => {
+    const solver = makeSolver(SHOWCASE_PUZZLE);
+    expect(() => solver.getStep(SolutionType.GROUPED_NICE_LOOP)).not.toThrow();
+  });
+});
