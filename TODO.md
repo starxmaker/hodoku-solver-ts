@@ -200,6 +200,15 @@ The following areas were audited and found equivalent to Java:
 | `ColoringSolver` algorithm — WRAP/TRAP logic per component matches Java exactly | ✅ |
 | `WingSolver` algorithms — XY-Wing, XYZ-Wing, W-Wing (including `else-if` single-link constraint) match Java | ✅ |
 | `MiscellaneousSolver` SUE_DE_COQ algorithm — intersection subsets, line/block enumeration, allowed-cand mask, elimination formulas all match Java | ✅ |
+| `UniquenessSolver` UR1–UR6, Hidden Rectangle, Avoidable Rectangle 1/2, BUG+1 — all algorithms verified correct | ✅ |
+| `ChainSolver` X-Chain, XY-Chain, Remote Pair — chain length cap (20), DFS structure, elimination rules all match Java | ✅ |
+| `AlsSolver` DEATH_BLOSSOM — stem loop, per-candidate ALS assignment, overlap guard, commonMask, elimination formula all match Java | ✅ |
+| `FishSolver` basic/finned fish — fin detection, sashimi check (≤1 covered candidate in a base line), elimination filter all match Java | ✅ |
+| `SingleDigitPatternSolver` algorithms — Skyscraper, Two-String Kite, Turbot Fish (3-link X-chain), Empty Rectangle all match Java | ✅ |
+| `AlsSolver` ALS-XZ doubly-linked (`_doublyLinkedElims`) — leftover-digit ALS lock propagation matches Java | ✅ |
+| `SimpleSolver` locked candidates (LC1/LC2) — exactly-2-or-3 filter, row/col/box alignment checks, elimination generation all match Java | ✅ |
+| `TablingSolver` `_checkTwoChains` — both-premise verity detection correct (minor: Java removes premise cell from results; TS omits this but checkOneChain runs first and handles the degenerate case) | ✅ (minor divergence documented in H notes) |
+| `Sudoku2.setSudoku` — candidate initialisation (fill all candidates, then `_placeDigit` for each given) matches Java's 81-char parse path | ✅ (TS only implements the 81-char format; Java also supports PM grid formats — see Category D) |
 
 ---
 
@@ -365,6 +374,126 @@ Any puzzle that requires a technique whose configured level is higher than what 
 File: `src/solver/SudokuSolver.ts`
 
 **Minor additional difference:** Java's `solve()` bails out early with `return false` if fewer than 10 cells are set (`(81 - unsolvedCellCount) < 10`). TS has no such guard and will attempt to solve any puzzle regardless of how few cells are given.
+
+---
+
+### H8 — TablingSolver `_checkNiceLoops`: missing chain-length filter causes spurious eliminations (critical)
+
+Java's `checkNiceLoop` starts with:
+```java
+if (entry.getDistance(entryIndex) <= 2) return; // chain too short
+```
+TS has no equivalent guard. Two direct consequences:
+
+**Sub-case A — 1-hop trivial: direct `offSets[d2]` match.**
+`fillTables` for an ON premise at `(ci, d)` immediately adds `offSets[d2].has(ci)` for every other candidate `d2` in `ci` (placing `d` deletes everything else). Because the ON-table check in `_checkNiceLoops` looks for `entry.offSets[d2].has(ci)` (for `d2 ≠ d`), TS immediately finds a match — distance = 1. For every multi-candidate cell and every ON-table entry, TS generates a spurious `DISCONTINUOUS_NICE_LOOP` step "delete `d2` from `ci`". This is a circular argument: *IF* `d` is placed *then* `d2` is deleted, but the table premise is that assumption, not a proof.
+
+**Sub-case B — 2-hop trivial: conjugate-pair loop.**
+When `ci` and `c1` are the only two cells for `d` in some house (conjugate pair), `expandTables` propagates: `offTable[c1*10+d].onSets[d].has(ci) = true` → `onSets[d].add(ci)` for the ON table at `(ci*10+d)`. TS then produces a DISC step "delete all other candidates from `ci`" (distance = 2). This is similarly circular (conjugate pair ≠ proof that `d` must go in `ci`).
+
+**Impact:** `_getNiceLoop()` will always find and return a spurious step immediately in any puzzle with multi-candidate cells before any real nice loop is checked. The returned elimination is logically invalid.
+
+**Why tests still pass:** The 8 snapshot test puzzles are solved entirely by simpler techniques before reaching nice loops. The unit tests for nice loops only check "step is not null and has some deletion" — they do not validate correctness.
+
+**Fix:** Add a minimum-distance filter before entering `_checkNiceLoops` logic. Since TS uses reachability sets rather than explicit chain paths, one approach is to filter out self-referential entries: skip if `onSets[d].has(ci)` was set as a DIRECT (1-step) implication, or track only implications reachable through at least `N` intermediate cells. Simpler: add a per-entry "needs at least 2 intermediate nodes" flag (tracking whether the entry was reached via ≥ 2 hops from the premise).
+
+Alternatively, replicate Java's logic more faithfully: store the minimum number of hops for each `(cell, digit)` reached in the BFS and only use those with hop-count ≥ 3.
+
+File: `src/solver/TablingSolver.ts`, `_checkNiceLoops`, `_expandTables`.
+
+---
+
+### H9 — TablingSolver `_checkNiceLoops`: misclassification of ON-table loop patterns
+
+In Java, the first traversal link from any ON-table premise is **always weak** (placing `d` at `ci` only causes deletions — no direct strong "set" implication). Therefore `firstLinkStrong = entry.isStrong(1) = false` for **all** ON-table entries.
+
+TS treats `isOnTables` as a proxy for `firstLinkStrong`, effectively treating all ON-table entries as if `firstLinkStrong = true`. This leads to two wrong classifications:
+
+| TS case found on ON table | TS output | Correct Java classification | Java output |
+|---|---|---|---|
+| `onSets[d].has(ci)` (same cand, last=strong) | DISCONTINUOUS: delete all others | `!first && last && sameCand` = **CONTINUOUS** | chain-traversal multi-cell eliminations |
+| `offSets[d2].has(ci)` d2≠d (diff cand, last=weak) | DISCONTINUOUS: delete d2 | `!first && !last && diffCand` = **CONTINUOUS** if bivalue, **no-match** otherwise | CONTINUOUS or nothing |
+
+Additionally, TS **never checks** `onSets[d2].has(ci)` for `d2 ≠ d` on ON tables. In Java with `!first && last && diffCand`, this case is **DISCONTINUOUS** → delete `d` from `ci`. TS misses this valid elimination.
+
+TS also **never generates** `CONTINUOUS_NICE_LOOP` for any of these cases.
+
+**Impact (assuming H8 is fixed):** After correcting the 2-hop filter, ON-table nice loop steps would be classified as DISCONTINUOUS instead of CONTINUOUS, producing different (and potentially fewer or wrong) eliminations compared to Java.
+
+**Fix:** For ON-table entries, treat `firstLinkStrong = false` (since ON-table first links are always weak deletions). Rewrite the ON-table branch of `_checkNiceLoops` to match Java's four classification cases:
+- `!first && !last && sameCand` → DISC, delete d from ci (this is what the OFF-table branch does — the ON-table version needs to be added)
+- `!first && last && sameCand` → CONTINUOUS
+- `!first && last && diffCand` (i.e., `onSets[d2].has(ci)`) → DISC, delete d from ci
+- `!first && !last && diffCand` (i.e., `offSets[d2].has(ci)` d2≠d) → CONTINUOUS if bivalue, else no-match
+
+File: `src/solver/TablingSolver.ts`, `_checkNiceLoops`.
+
+---
+
+### H10 — TablingSolver `_checkAics`: missing AIC Type 2 (different-candidate AICs)
+
+Java `checkAics` handles two chain types:
+- **Type 1** (same start/end candidate `d`): find endCell in `onSets[d]`, eliminate `d` from all common buddies
+- **Type 2** (different start `d1` / end `d2`): if endCell sees startCell, endCell has `d1`, and startCell has `d2` → delete `d1` from endCell and `d2` from startCell
+
+TS `_checkAics` iterates only over `onSets[startCand]` (same candidate), so **only Type 1** is implemented. Type 2 steps are never generated.
+
+**Impact:** Some advanced AIC eliminations are missed. A Type 2 AIC ends at a cell that sees the start cell with a different candidate — a valid but less common pattern.
+
+**Fix:** Add a second loop after the Type 1 search: for each `(endCell, endCand)` found in `onSets[d2]` for `d2 ≠ startCand`, check if `endCell ∈ BUDDIES[startCell]` and if mutual cross-candidates exist, then produce a Type 2 AIC step.
+
+File: `src/solver/TablingSolver.ts`, `_checkAics`.
+
+---
+
+### H11 — TablingSolver `_checkAics`: AIC Type 1 threshold divergence
+
+Java requires `tmpSet.size() >= 2` (the intersection `buddies(start) ∩ buddies(end) ∩ cands[d]` must contain **at least 2 cells**) before calling `checkAic`. Java's comment: *"everything else is already covered by a Nice Loop."*
+
+TS requires only `dels.length >= 1` (at least 1 common buddy). This means TS produces AIC steps for 1-common-buddy cases that Java intentionally skips (treating them as nice loops instead).
+
+**Impact:** Minor classification difference. TS emits `AIC` for steps Java would classify as `DISCONTINUOUS_NICE_LOOP`. Due to H8 breaking nice loops in TS, this may actually help TS find valid steps that H8 would otherwise corrupt.
+
+**Fix (low priority):** Increase TS threshold to `dels.length >= 2` to match Java. Only relevant once H8/H9 are fixed.
+
+File: `src/solver/TablingSolver.ts`, `_checkAics`.
+
+---
+
+### H12 — TablingSolver `_checkOneChain`: missing "cell-without-candidates" contradiction case
+
+Java `checkOneChain` has a 6th contradiction check not present in TS:
+
+```java
+// cell without candidates -> assumption false
+tmpSet.setAll();
+for (int i = 1; i < entry.offSets.length; i++) {
+    tmpSet1.set(entry.offSets[i]);
+    tmpSet1.orNot(finder.getCandidates()[i]);
+    tmpSet.and(tmpSet1);
+}
+// remove cells where a value is already set, then:
+// if tmpSet is non-empty → some cell has ALL its candidates eliminated → contradiction
+```
+
+Logic: for every candidate `d`, compute the set `offSets[d] ∪ ~candidates[d]` (cells where `d` is either already eliminated by the chain, or was never a candidate). AND all of these together. Any cell in the result has **all** its candidates eliminated by the chain → the cell becomes empty → the premise is contradictory.
+
+TS `_checkOneChain` has 5 cases (premise-inverse, set+deleted, two-values-in-cell, value-twice-in-house, all-positions-in-house-deleted) but no case covering "the chain leaves a cell with zero remaining candidates."
+
+**Impact:** TS misses some forcing-chain contradiction deductions — specifically, contradictions that arise when a chain collectively wipes out all candidates in some cell but no single digit is both set and deleted there.
+
+**Fix:** Add a sixth case to `_checkOneChain`:
+```typescript
+// Case 6: some cell has all its candidates eliminated
+for (let cell = 0; cell < 81; cell++) {
+  if (s.values[cell] !== 0) continue;
+  const cands = s.getCandidates(cell);
+  if (cands.length === 0) continue;  // already solved
+  if (cands.every(d2 => entry.offSets[d2].has(cell))) return conclude();
+}
+```
+
+File: `src/solver/TablingSolver.ts`, `_checkOneChain`.
 
 ---
 
