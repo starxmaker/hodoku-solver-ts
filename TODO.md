@@ -223,6 +223,11 @@ The following areas were audited and found equivalent to Java:
 | `MiscellaneousSolver` — only implements `SUE_DE_COQ`; Java's `MiscellaneousSolver` also only exposes `SUE_DE_COQ` via `getStep` | ✅ |
 | `GiveUpSolver` / `IncompleteSolver` — both trivial sentinels matching Java behaviour exactly | ✅ |
 | `ChainSolver` remote-pair, X-chain, XY-chain core detection logic — elimination conditions and traversal rules all match Java (see H16 for chain-length and step-selection divergences) | ✅ |
+| `SimpleSolver` naked subsets (NAKED_PAIR/TRIPLE/QUAD) — combo union mask + popcount=n check, primary/secondary house deletion, `isLocked` classification all match Java; `SUBSET_HOUSE_ORDER` = blocks first then rows then cols matches Java's block-first search order | ✅ |
+| `SimpleSolver` hidden subsets (HIDDEN_PAIR/TRIPLE/QUAD) — eligible-digit filter (1..n occurrences), cellSet size=n check, non-target-digit deletion all match Java | ✅ |
+| `SimpleSolver` locked subsets (LOCKED_PAIR/TRIPLE) — uses same `_findNakedSubset(n, locked=true)` path; minor: TS searches all 27 houses, Java only searches blocks (same eliminations found, possible cosmetic ordering difference) | ✅ |
+| `FishSolver` Franken/Mutant fish algorithms — base/cover constraints (Franken: base=rows-only or cols-only, cover has ≥1 box; Mutant: any mix with ≥1 box), fin detection, elimination filter all match Java for the sizes handled (see H17 for size cap divergence) | ✅ |
+| `TemplateSolver` single-pass AND/OR template logic — template validation (placed cells included, forbidden cells excluded), `svt`/`dct` accumulation, SET/DEL step generation all match Java (cross-digit iterative refinement missing — see H6) | ✅ |
 
 ---
 
@@ -593,6 +598,41 @@ TS outer loop is `j > i` (unordered pairs), with `colorA` cycling only over `{a0
 **Fix:** Change Type 2 check to accumulate `seeHalf1` and `seeHalf2` across all cells (like Java's `checkMultiColor1`), and change the outer loop to iterate all ordered pairs `(i, j)` with `i ≠ j` (or equivalently, after `j > i` loop also check component[j]→component[i]).
 
 File: `src/solver/ColoringSolver.ts`, `_findMultiColors`.
+
+---
+
+### H17 — FishSolver: Franken fish capped at size 4; Mutant fish capped at size 3 (Java allows up to size 6)
+
+`_findFrankenFish` contains an early-return guard:
+```ts
+if (size > 4) return null;
+```
+`_findMutantFish` contains a similar guard:
+```ts
+if (size > 3) return null;
+```
+
+Java's `FishSolver` uses `FRANKEN_TYPES` and `MUTANT_TYPES` arrays that include sizes 2–6 (`FRANKEN_LEVIATHAN` / `MUTANT_LEVIATHAN`):
+```java
+private static final SolutionType[] FRANKEN_TYPES = {
+    FRANKEN_X_WING, FRANKEN_SWORDFISH, FRANKEN_JELLYFISH,
+    FRANKEN_SQUIRMBAG, FRANKEN_WHALE, FRANKEN_LEVIATHAN  // sizes 2–7
+};
+```
+No size cap guard exists in Java — all sizes are delegated to `getFishes`.
+
+**Impact:** The following techniques are in `TECHNIQUE_ORDER` with dispatched calls but always silently return null:
+- Franken size 5: `FRANKEN_SQUIRMBAG`, `FINNED_FRANKEN_SQUIRMBAG`, `SASHIMI_FRANKEN_SQUIRMBAG`
+- Franken size 6: `FRANKEN_WHALE`, `FINNED_FRANKEN_WHALE`, `SASHIMI_FRANKEN_WHALE`
+- Franken size 7: `FRANKEN_LEVIATHAN`, `FINNED_FRANKEN_LEVIATHAN`, `SASHIMI_FRANKEN_LEVIATHAN`
+- Mutant size 4: `MUTANT_JELLYFISH`, `FINNED_MUTANT_JELLYFISH`, `SASHIMI_MUTANT_JELLYFISH`
+- Mutant size 5–7: Squirmbag, Whale, Leviathan variants
+
+All of these are disabled in Java's default solve mode (H3), so this only matters when those techniques are explicitly enabled. These are also extremely rare in practice, but the systematic null return is an avoidable divergence.
+
+**Fix:** Remove the `size > 4` guard in `_findFrankenFish` and the `size > 3` guard in `_findMutantFish`, and ensure `_searchGeneralFish` is robust for sizes 5–6.
+
+File: `src/solver/FishSolver.ts`, `_findFrankenFish` (line ~283), `_findMutantFish` (line ~305).
 
 ---
 
