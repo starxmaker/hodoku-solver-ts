@@ -204,7 +204,7 @@ The following areas were audited and found equivalent to Java:
 | `ChainSolver` X-Chain, XY-Chain, Remote Pair — chain length cap (20), DFS structure, elimination rules all match Java | ✅ |
 | `AlsSolver` DEATH_BLOSSOM — stem loop, per-candidate ALS assignment, overlap guard, commonMask, elimination formula all match Java | ✅ |
 | `FishSolver` basic/finned fish — fin detection, sashimi check (≤1 covered candidate in a base line), elimination filter all match Java | ✅ |
-| `SingleDigitPatternSolver` algorithms — Skyscraper, Two-String Kite, Turbot Fish (3-link X-chain), Empty Rectangle all match Java | ✅ |
+| `SingleDigitPatternSolver` algorithms — Skyscraper, Two-String Kite, Turbot Fish (3-link X-chain) all match Java; Empty Rectangle `checkEmptyRectangle` elimination logic matches Java but box-arm filter is too strict — see H19 | ✅ (ER arm filter gap — H19) |
 | `AlsSolver` ALS-XZ doubly-linked (`_doublyLinkedElims`) — leftover-digit ALS lock propagation matches Java | ✅ |
 | `SimpleSolver` locked candidates (LC1/LC2) — exactly-2-or-3 filter, row/col/box alignment checks, elimination generation all match Java | ✅ |
 | `TablingSolver` `_checkTwoChains` — both-premise verity detection correct (minor: Java removes premise cell from results; TS omits this but checkOneChain runs first and handles the degenerate case) | ✅ (minor divergence documented in H notes) |
@@ -230,7 +230,7 @@ The following areas were audited and found equivalent to Java:
 | `TemplateSolver` single-pass AND/OR template logic — template validation (placed cells included, forbidden cells excluded), `svt`/`dct` accumulation, SET/DEL step generation all match Java (cross-digit iterative refinement missing — see H6) | ✅ |
 | `ColoringSolver` MULTI_COLORS_1 algorithm — 4-orientation inner loop `(colorA=a0/a1, colorB=b0/b1)` correctly covers all four `checkMultiColor2` calls Java makes per ordered pair (i,j); elimination logic (cells outside both components seeing BOTH `oppA` AND `oppB`) matches Java's `checkCandidateToDelete`; unordered outer loop `j > i` is fine for MC1 due to 4-orientation symmetry | ✅ |
 | `TablingSolver._fillTablesForNet` / `_netPropagateOn` / `_netPropagateOff` — propagates naked singles and hidden singles transitively after each placement; correctly simulates Java's `chainsOnly=false` full-propagation branch for FORCING_NET | ✅ |
-| `TablingSolver._expandTablesWithGroups` — group-OFF detection (all group cells present in `offSets[d]`) triggers forced singleton search in row/col/block; matches Java's group-node BFS expansion used for GROUPED_NICE_LOOP | ✅ |
+| `TablingSolver._expandTablesWithGroups` — group-OFF detection (all group cells present in `offSets[d]`) triggers forced singleton search in row/col/block; matches Java's group-node BFS for GROUPED_NICE_LOOP (**minor gap**: Java's `fillTablesWithGroupNodes` also records explicit group-to-group strong links — G1-OFF → G2-ON when two non-overlapping groups are the only positions for d in a house with no individual candidates; TS does not generate these collective strong links; affects GROUPED_NICE_LOOP only, disabled by default — H3) | ✅ |
 | `TablingSolver._checkForcingChains` — five-case contradiction/verity detection (premise↔inverse, same-candidate set+del, two-values-in-one-cell, same-value-twice-in-house, all-positions-of-digit-deleted-in-house) matches Java's `checkOneChain` / `checkTwoChains` / `checkAllChainsFor*` structure (see H12 for missing case 6, H4/H5/H9 for table-fill divergences) | ✅ |
 | `TablingSolver._fillTables` (chainsOnly=true) — ON-premise: deletes all other candidates from cell + deletes d from all peer buddies; OFF-premise: naked-single promotion (1 remaining candidate) + hidden-single-in-house (1 remaining position for d); matches Java's `fillTable(chainsOnly=true)` direct-implication logic | ✅ |
 | `TablingSolver._expandTablesWithAls` — BFS post-expansion with ALS fire condition (all entry-digit cells in `offSets[e]` → exit digits deleted from `buddiesFor[z]`); ALS-to-ALS chaining handled transitively by continuing BFS; matches Java's elimination propagation logic (buddy-forcing for ≥3-candidate cells missing — see H18) | ✅ |
@@ -639,6 +639,32 @@ All of these are disabled in Java's default solve mode (H3), so this only matter
 **Fix:** Remove the `size > 4` guard in `_findFrankenFish` and the `size > 3` guard in `_findMutantFish`, and ensure `_searchGeneralFish` is robust for sizes 5–6.
 
 File: `src/solver/FishSolver.ts`, `_findFrankenFish` (line ~283), `_findMutantFish` (line ~305).
+
+---
+
+### H19 — SingleDigitPatternSolver: `_collectEmptyRectangles` requires ≥2 in BOTH arms; Java only requires ≥2 in AT LEAST ONE
+
+TS's `_collectEmptyRectangles` filters with:
+```ts
+if (boxCells.filter(c => Sudoku2.col(c) === erCol).length < 2) continue;
+if (boxCells.filter(c => Sudoku2.row(c) === erRow).length < 2) continue;
+```
+This requires **both** the row-arm and the col-arm of the ER cross to contain ≥2 candidates.
+
+Java's equivalent check uses `notEnoughCandidates = true` and clears it when EITHER arm has ≥2; it only skips when BOTH arms have <2 (guarded by `allowErsWithOnlyTwoCandidates = false` by default).
+
+**Missed ER variant:** A box with candidates like `{(r0,c2), (r1,c0), (r2,c0)}` (erRow=r0, erCol=c0) is a valid ER: all candidates are on the cross, erCol arm has 2 cells, but erRow arm has only 1 cell `(r0,c2)`. Java proceeds to `checkEmptyRectangle` and can find a valid elimination via a conjugate pair in col c2 with one cell in r0. TS skips this box entirely because erRow arm count = 1.
+
+**Impact:** TS misses some EMPTY_RECTANGLE eliminations on puzzles whose ER box has a "single-arm" shape. EMPTY_RECTANGLE is enabled in Java's default solve mode, so this affects normal solving results.
+
+**Fix:** Require ≥2 in AT LEAST ONE arm (matching Java's `notEnoughCandidates` logic):
+```ts
+const rowArmCount = boxCells.filter(c => Sudoku2.row(c) === erRow).length;
+const colArmCount = boxCells.filter(c => Sudoku2.col(c) === erCol).length;
+if (rowArmCount < 2 && colArmCount < 2) continue; // both arms short → skip
+```
+
+File: `src/solver/SingleDigitPatternSolver.ts`, `_collectEmptyRectangles`.
 
 ---
 
