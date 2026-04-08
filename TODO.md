@@ -218,6 +218,11 @@ The following areas were audited and found equivalent to Java:
 | `TablingSolver.setSudoku` — properly resets `_krakenFilled` and all table state on each new puzzle; matches Java's `AbstractSolver` chain | ✅ |
 | `Sudoku2._countSolns` / `getSolution` — MRV+backtracker is functionally equivalent to Java's Dancing Links for uniqueness detection and solution retrieval | ✅ |
 | `TablingSolver._checkTwoChains` premise-cell exclusion — Java removes the premise cell from the onSets/offSets intersection to avoid double-reporting what `_checkOneChain` already catches; TS does not remove it. In practice, any such cell would already be caught by `_checkOneChain` before `_checkTwoChains` runs, so this causes no incorrect results — just a possible duplicate report in a degenerate edge case | ✅ (minor; no action needed) |
+| `WingSolver._findXYWing` / `_findXYZWing` / `_findWWing` — all three algorithms match Java (`getWing(false)`, `getWing(true)`, `getWWing`). W-Wing bridge-cell exclusion check (`!bSeesI`) equivalent to Java's `else if` idiom | ✅ |
+| `UniquenessSolver` UR1–UR6 / Hidden Rectangle / BUG+1 / Avoidable Rectangle — all elimination rules (`_checkUR`, `_findBugPlus1`, `_findAvoidableRectangle`) match Java's equivalent logic in `checkURForStep` / `getBugPlus1` | ✅ |
+| `MiscellaneousSolver` — only implements `SUE_DE_COQ`; Java's `MiscellaneousSolver` also only exposes `SUE_DE_COQ` via `getStep` | ✅ |
+| `GiveUpSolver` / `IncompleteSolver` — both trivial sentinels matching Java behaviour exactly | ✅ |
+| `ChainSolver` remote-pair, X-chain, XY-chain core detection logic — elimination conditions and traversal rules all match Java (see H16 for chain-length and step-selection divergences) | ✅ |
 
 ---
 
@@ -541,6 +546,26 @@ TS `_findKrakenFish` iterates only `for (const rowBase of [true, false])` with l
 **Fix:** Add a Franken Kraken search path that uses boxes as base or cover units, mirroring `_findFrankenFish` but with Kraken forcing-chain analysis.
 
 File: `src/solver/FishSolver.ts`, `_findKrakenFish`.
+
+---
+
+### H16 — ChainSolver: X-Chain / XY-Chain capped at 20 nodes; Java allows 162. First-found vs best-sorted.
+
+Java `ChainSolver` defines `MAX_CHAIN_LENGTH = 2 * Sudoku2.LENGTH = 162`. TS `_xChainDFS` and `_xyChainDFS` both return null when `chain.length >= 20` (19 nodes maximum).
+
+**Length difference:** TS may miss X-Chains and XY-Chains that require more than 19 nodes (very uncommon in practice, but theoretically possible).
+
+**Step-selection difference:** Java collects *all* valid chains for a technique, sorts them by a custom comparator (shortest first), and returns the best. TS uses DFS and returns the *first* found chain (arbitrary DFS order). TS will return a valid chain, but it may not be the shortest or most "natural" one. This affects:
+- Which specific pattern is shown in results (cosmetic)
+- Difficulty score consistency: same technique always scores the same, but if TS and Java choose different chains, later techniques may differ (very minor)
+
+**Remote Pair is unaffected:** TS `_remotePairDFS` has no explicit cap (the natural constraint is the number of cells sharing the same bivalue pair), matching Java's `stackLevel >= 7` threshold correctly.
+
+**Impact:** Cosmetic/edge-case. Both differences produce valid (correct) eliminations when they do find a chain.
+
+**Fix:** Change `if (chain.length >= 20) return null` to use a configurable cap (default 162), and optionally collect all chains and return the shortest to match Java's step-selection.
+
+File: `src/solver/ChainSolver.ts`, `_xChainDFS`, `_xyChainDFS`.
 
 ---
 
