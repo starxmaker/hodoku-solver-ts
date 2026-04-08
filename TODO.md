@@ -233,6 +233,7 @@ The following areas were audited and found equivalent to Java:
 | `TablingSolver._expandTablesWithGroups` — group-OFF detection (all group cells present in `offSets[d]`) triggers forced singleton search in row/col/block; matches Java's group-node BFS expansion used for GROUPED_NICE_LOOP | ✅ |
 | `TablingSolver._checkForcingChains` — five-case contradiction/verity detection (premise↔inverse, same-candidate set+del, two-values-in-one-cell, same-value-twice-in-house, all-positions-of-digit-deleted-in-house) matches Java's `checkOneChain` / `checkTwoChains` / `checkAllChainsFor*` structure (see H12 for missing case 6, H4/H5/H9 for table-fill divergences) | ✅ |
 | `TablingSolver._fillTables` (chainsOnly=true) — ON-premise: deletes all other candidates from cell + deletes d from all peer buddies; OFF-premise: naked-single promotion (1 remaining candidate) + hidden-single-in-house (1 remaining position for d); matches Java's `fillTable(chainsOnly=true)` direct-implication logic | ✅ |
+| `TablingSolver._expandTablesWithAls` — BFS post-expansion with ALS fire condition (all entry-digit cells in `offSets[e]` → exit digits deleted from `buddiesFor[z]`); ALS-to-ALS chaining handled transitively by continuing BFS; matches Java's elimination propagation logic (buddy-forcing for ≥3-candidate cells missing — see H18) | ✅ |
 
 ---
 
@@ -638,6 +639,29 @@ All of these are disabled in Java's default solve mode (H3), so this only matter
 **Fix:** Remove the `size > 4` guard in `_findFrankenFish` and the `size > 3` guard in `_findMutantFish`, and ensure `_searchGeneralFish` is robust for sizes 5–6.
 
 File: `src/solver/FishSolver.ts`, `_findFrankenFish` (line ~283), `_findMutantFish` (line ~305).
+
+---
+
+### H18 — TablingSolver `_expandTablesWithAls`: missing "buddy forcing" when ALS eliminates all-but-one candidate from a multi-candidate cell
+
+Java's `fillTablesWithAls` includes a final pass over every ALS buddy cell after computing the ALS eliminations:
+```java
+// if buddy cell has ≥3 candidates and ALS removes all-but-one → force it ON
+for (int k = 0; k < als.buddies.size(); k++) {
+    ...getCandidateSet(cellIndex, tmpSet1);
+    for l in 1..9: if alsEliminations[l].contains(cellIndex): tmpSet1.remove(l);
+    if (tmpSet1.size() == 1) offEntry.addEntry(cellIndex, tmpSet1.get(0), ..., true); // forced ON
+}
+```
+(Skips cells with exactly 2 candidates since those are already handled by normal table entries.)
+
+TS `_expandTablesWithAls` only fires ALS exit-digit deletions (`buddiesFor[z]`); it never checks whether those deletions together reduce a buddy cell to a single remaining candidate, so it never generates the corresponding forced-ON implication.
+
+**Impact:** Chains of the form: *[ALS fires → eliminates two candidates from cell X → X is a naked single → X forces further deletions]* are missed in TS. This is an extremely rare scenario (cell must have ≥3 candidates, ALS must eliminate ≥2 of them, and the remaining single candidate must close a pattern). Only relevant for GROUPED_NICE_LOOP and (for TS, unconditionally) GROUPED_DISCONTINUOUS_NICE_LOOP / FORCING_CHAIN / FORCING_NET. All of these are disabled in Java's default mode (H3).
+
+**Fix:** After `checkAlsOff` fires in the BFS, scan the ALS's buddy cells (union of `buddiesFor[z]` for all exit z) and check if total currently-deleted candidates leave exactly 1 remaining candidate in any of them; if so, add a forced-ON (`dest.addSet`) entry.
+
+File: `src/solver/TablingSolver.ts`, `_expandTablesWithAls`.
 
 ---
 
