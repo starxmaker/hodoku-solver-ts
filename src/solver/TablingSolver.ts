@@ -749,8 +749,23 @@ export class TablingSolver extends AbstractSolver {
             dels.push({ index: buddy, value: startCand as Digit });
           }
         }
-        // H11: Java requires ≥2 common buddies (1-buddy case is already covered by Nice Loops).
+        // H11: Java requires ≥2 common buddies (1-buddy case already covered by Nice Loops).
         if (dels.length >= 2) return _step(SolutionType.AIC, dels);
+      }
+
+      // H10 Type 2: endCell in onSets[d2] where d2 != startCand, endCell sees
+      // startCell, endCell has startCand, startCell has d2.
+      for (let d2 = 1; d2 <= 9; d2++) {
+        if (d2 === startCand) continue;
+        for (const endCell of entry.onSets[d2]) {
+          if (!BUDDY_SETS[startCell].has(endCell)) continue;
+          if (!s.isCandidate(endCell, startCand)) continue;
+          if (!s.isCandidate(startCell, d2)) continue;
+          return _step(SolutionType.AIC, [
+            { index: endCell,   value: startCand as Digit },
+            { index: startCell, value: d2 as Digit },
+          ]);
+        }
       }
     }
     return null;

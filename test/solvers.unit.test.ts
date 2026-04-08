@@ -1288,104 +1288,105 @@ describe("FishSolver", () => {
     });
   });
 
-  // Franken/Mutant size ≥ 5 is blocked for performance.
-  // These describe blocks document the cap and verify no crash occurs.
+  // H17: performance caps (size > 4 for Franken, size > 3 for Mutant) removed.
+  // These tests verify the searches run without throwing; null means the puzzle
+  // has no such pattern, non-null means a valid step was found.
 
-  describe("Franken Squirmbag (size ≥ 5 — returns null)", () => {
-    test("returns null (size ≥ 5 performance cap)", () => {
+  describe("Franken Squirmbag (size 5)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.FRANKEN_SQUIRMBAG)).toBeNull();
+      expect(() => solver.getStep(SolutionType.FRANKEN_SQUIRMBAG)).not.toThrow();
     });
   });
 
-  describe("Finned Franken Squirmbag (size ≥ 5 — returns null)", () => {
-    test("returns null (size ≥ 5 performance cap)", () => {
+  describe("Finned Franken Squirmbag (size 5)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.FINNED_FRANKEN_SQUIRMBAG)).toBeNull();
+      expect(() => solver.getStep(SolutionType.FINNED_FRANKEN_SQUIRMBAG)).not.toThrow();
     });
   });
 
-  describe("Franken Whale (size ≥ 5 — returns null)", () => {
-    test("returns null (size ≥ 5 performance cap)", () => {
+  describe("Franken Whale (size 6)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.FRANKEN_WHALE)).toBeNull();
+      expect(() => solver.getStep(SolutionType.FRANKEN_WHALE)).not.toThrow();
     });
   });
 
-  describe("Finned Franken Whale (size ≥ 5 — returns null)", () => {
-    test("returns null (size ≥ 5 performance cap)", () => {
+  describe("Finned Franken Whale (size 6)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.FINNED_FRANKEN_WHALE)).toBeNull();
+      expect(() => solver.getStep(SolutionType.FINNED_FRANKEN_WHALE)).not.toThrow();
     });
   });
 
-  describe("Franken Leviathan (size ≥ 5 — returns null)", () => {
-    test("returns null (size ≥ 5 performance cap)", () => {
+  describe("Franken Leviathan (size 7)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.FRANKEN_LEVIATHAN)).toBeNull();
+      expect(() => solver.getStep(SolutionType.FRANKEN_LEVIATHAN)).not.toThrow();
     });
   });
 
-  describe("Finned Franken Leviathan (size ≥ 5 — returns null)", () => {
-    test("returns null (size ≥ 5 performance cap)", () => {
+  describe("Finned Franken Leviathan (size 7)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.FINNED_FRANKEN_LEVIATHAN)).toBeNull();
+      expect(() => solver.getStep(SolutionType.FINNED_FRANKEN_LEVIATHAN)).not.toThrow();
     });
   });
 
-  describe("Mutant Jellyfish (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Mutant Jellyfish (size 4)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.MUTANT_JELLYFISH)).toBeNull();
+      expect(() => solver.getStep(SolutionType.MUTANT_JELLYFISH)).not.toThrow();
     });
   });
 
-  describe("Finned Mutant Jellyfish (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Finned Mutant Jellyfish (size 4)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.FINNED_MUTANT_JELLYFISH)).toBeNull();
+      expect(() => solver.getStep(SolutionType.FINNED_MUTANT_JELLYFISH)).not.toThrow();
     });
   });
 
-  describe("Mutant Squirmbag (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Mutant Squirmbag (size 5)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.MUTANT_SQUIRMBAG)).toBeNull();
+      expect(() => solver.getStep(SolutionType.MUTANT_SQUIRMBAG)).not.toThrow();
     });
   });
 
-  describe("Finned Mutant Squirmbag (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Finned Mutant Squirmbag (size 5)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.FINNED_MUTANT_SQUIRMBAG)).toBeNull();
+      expect(() => solver.getStep(SolutionType.FINNED_MUTANT_SQUIRMBAG)).not.toThrow();
     });
   });
 
-  describe("Mutant Whale (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Mutant Whale (size 6)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.MUTANT_WHALE)).toBeNull();
+      expect(() => solver.getStep(SolutionType.MUTANT_WHALE)).not.toThrow();
     });
   });
 
-  describe("Finned Mutant Whale (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Finned Mutant Whale (size 6)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.FINNED_MUTANT_WHALE)).toBeNull();
+      expect(() => solver.getStep(SolutionType.FINNED_MUTANT_WHALE)).not.toThrow();
     });
   });
 
-  describe("Mutant Leviathan (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Mutant Leviathan (size 7)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.MUTANT_LEVIATHAN)).toBeNull();
+      expect(() => solver.getStep(SolutionType.MUTANT_LEVIATHAN)).not.toThrow();
     });
   });
 
-  describe("Finned Mutant Leviathan (size ≥ 4 — returns null)", () => {
-    test("returns null (size ≥ 4 performance cap)", () => {
+  describe("Finned Mutant Leviathan (size 7)", () => {
+    test("search does not throw (H17: size cap removed)", () => {
       const solver = makeSolver(SHOWCASE_PUZZLE);
-      expect(solver.getStep(SolutionType.FINNED_MUTANT_LEVIATHAN)).toBeNull();
+      expect(() => solver.getStep(SolutionType.FINNED_MUTANT_LEVIATHAN)).not.toThrow();
     });
   });
 

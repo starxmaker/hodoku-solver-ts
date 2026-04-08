@@ -373,7 +373,7 @@ export class AlsSolver extends AbstractSolver {
     alses:   Als[],
     adj:     Map<number, { j: number; d: number; d2: number }[]>,
   ): SolutionStep | null {
-    if (chain.length > 6) return null; // depth limit for performance
+    if (chain.length > 50) return null; // H13A: Java MAX_RC=50 in getStep mode (was incorrectly 6)
 
     for (const { j, d, d2 } of (adj.get(cur) ?? [])) {
       if (entryD !== 0 && d === entryD) continue; // adjacency rule

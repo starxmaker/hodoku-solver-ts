@@ -283,8 +283,8 @@ export class FishSolver extends AbstractSolver {
     finned: boolean,
     type: typeof SolutionType[keyof typeof SolutionType]
   ): SolutionStep | null {
-    // Limited to size ≤ 4 for performance (size ≥ 5 has enormous search space).
-    if (size > 4) return null;
+    // H17: Removed size > 4 guard. Java allows up to Leviathan (size 7).
+    // Franken Squirmbag+ are disabled by default via TECHNIQUE_ORDER (H3).
     for (let d = 1; d <= 9; d++) {
       const step = this._searchGeneralFish(d, size, finned, type, 'franken');
       if (step) return step;
@@ -304,8 +304,8 @@ export class FishSolver extends AbstractSolver {
     finned: boolean,
     type: typeof SolutionType[keyof typeof SolutionType]
   ): SolutionStep | null {
-    // Limit search to manageable sizes.
-    if (size > 3) return null;
+    // H17: Removed size > 3 guard. Java allows up to Leviathan (size 7).
+    // Mutant Jellyfish+ are disabled by default via TECHNIQUE_ORDER (H3).
     for (let d = 1; d <= 9; d++) {
       const step = this._searchGeneralFish(d, size, finned, type, 'mutant');
       if (step) return step;

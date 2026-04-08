@@ -244,6 +244,127 @@ const DIFFICULTY_LEVELS: { name: DifficultyType; maxScore: number }[] = [
   { name: "EXTREME", maxScore: Number.MAX_SAFE_INTEGER },
 ];
 
+/**
+ * Per-technique minimum difficulty index (0=EASY … 4=EXTREME).
+ * Mirrors Java StepConfig#getDifficultyLevel() from Options.DEFAULT_SOLVER_STEPS.
+ * A puzzle's difficulty is at least this level whenever that technique is used — even
+ * if the cumulative score alone would place it lower.
+ * Sub-types (e.g. SIMPLE_COLORS_TRAP) inherit the parent technique's level.
+ */
+const STEP_MIN_DIFFICULTY_IDX: Partial<Record<string, number>> = {
+  // 0 = EASY
+  [SolutionType.FULL_HOUSE]:              0,
+  [SolutionType.NAKED_SINGLE]:            0,
+  [SolutionType.HIDDEN_SINGLE]:           0,
+  // 1 = MEDIUM
+  [SolutionType.LOCKED_PAIR]:             1,
+  [SolutionType.LOCKED_TRIPLE]:           1,
+  [SolutionType.LOCKED_CANDIDATES_1]:     1,
+  [SolutionType.LOCKED_CANDIDATES_2]:     1,
+  [SolutionType.NAKED_PAIR]:              1,
+  [SolutionType.NAKED_TRIPLE]:            1,
+  [SolutionType.HIDDEN_PAIR]:             1,
+  [SolutionType.HIDDEN_TRIPLE]:           1,
+  // 2 = HARD
+  [SolutionType.NAKED_QUADRUPLE]:         2,
+  [SolutionType.HIDDEN_QUADRUPLE]:        2,
+  [SolutionType.X_WING]:                  2,
+  [SolutionType.SWORDFISH]:               2,
+  [SolutionType.JELLYFISH]:               2,
+  [SolutionType.REMOTE_PAIR]:             2,
+  [SolutionType.BUG_PLUS_1]:              2,
+  [SolutionType.SKYSCRAPER]:              2,
+  [SolutionType.TWO_STRING_KITE]:         2,
+  [SolutionType.TURBOT_FISH]:             2,
+  [SolutionType.EMPTY_RECTANGLE]:         2,
+  [SolutionType.W_WING]:                  2,
+  [SolutionType.XY_WING]:                 2,
+  [SolutionType.XYZ_WING]:               2,
+  [SolutionType.UNIQUENESS_1]:            2,
+  [SolutionType.UNIQUENESS_2]:            2,
+  [SolutionType.UNIQUENESS_3]:            2,
+  [SolutionType.UNIQUENESS_4]:            2,
+  [SolutionType.UNIQUENESS_5]:            2,
+  [SolutionType.UNIQUENESS_6]:            2,
+  [SolutionType.HIDDEN_RECTANGLE]:        2,
+  [SolutionType.AVOIDABLE_RECTANGLE_1]:   2,
+  [SolutionType.AVOIDABLE_RECTANGLE_2]:   2,
+  [SolutionType.FINNED_X_WING]:           2,
+  [SolutionType.SASHIMI_X_WING]:          2,
+  [SolutionType.SIMPLE_COLORS]:           2,
+  [SolutionType.SIMPLE_COLORS_TRAP]:      2,  // sub-type of SIMPLE_COLORS
+  [SolutionType.SIMPLE_COLORS_WRAP]:      2,  // sub-type of SIMPLE_COLORS
+  [SolutionType.MULTI_COLORS]:            2,
+  [SolutionType.MULTI_COLORS_1]:          2,  // sub-type of MULTI_COLORS
+  [SolutionType.MULTI_COLORS_2]:          2,  // sub-type of MULTI_COLORS
+  // 3 = UNFAIR
+  [SolutionType.SQUIRMBAG]:               3,
+  [SolutionType.WHALE]:                   3,
+  [SolutionType.LEVIATHAN]:               3,
+  [SolutionType.FINNED_SWORDFISH]:        3,
+  [SolutionType.SASHIMI_SWORDFISH]:       3,
+  [SolutionType.FINNED_JELLYFISH]:        3,
+  [SolutionType.SASHIMI_JELLYFISH]:       3,
+  [SolutionType.FINNED_SQUIRMBAG]:        3,
+  [SolutionType.SASHIMI_SQUIRMBAG]:       3,
+  [SolutionType.FINNED_WHALE]:            3,
+  [SolutionType.SASHIMI_WHALE]:           3,
+  [SolutionType.FINNED_LEVIATHAN]:        3,
+  [SolutionType.SASHIMI_LEVIATHAN]:       3,
+  [SolutionType.SUE_DE_COQ]:              3,
+  [SolutionType.X_CHAIN]:                 3,
+  [SolutionType.XY_CHAIN]:                3,
+  [SolutionType.NICE_LOOP]:               3,
+  [SolutionType.DISCONTINUOUS_NICE_LOOP]: 3,  // sub-type of NICE_LOOP
+  [SolutionType.CONTINUOUS_NICE_LOOP]:    3,  // sub-type of NICE_LOOP
+  [SolutionType.AIC]:                     3,  // sub-type of NICE_LOOP
+  [SolutionType.ALS_XZ]:                  3,
+  [SolutionType.ALS_XY_WING]:             3,
+  [SolutionType.ALS_XY_CHAIN]:            3,
+  [SolutionType.DEATH_BLOSSOM]:           3,
+  [SolutionType.FRANKEN_X_WING]:          3,
+  [SolutionType.FRANKEN_SWORDFISH]:       3,
+  [SolutionType.FRANKEN_JELLYFISH]:       3,
+  [SolutionType.FINNED_FRANKEN_X_WING]:   3,
+  [SolutionType.FINNED_FRANKEN_SWORDFISH]:3,
+  [SolutionType.FINNED_FRANKEN_JELLYFISH]:3,
+  [SolutionType.GROUPED_NICE_LOOP]:       3,
+  [SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP]: 3,  // sub-type of GROUPED_NICE_LOOP
+  [SolutionType.GROUPED_CONTINUOUS_NICE_LOOP]:    3,  // sub-type of GROUPED_NICE_LOOP
+  [SolutionType.GROUPED_AIC]:             3,          // sub-type of GROUPED_NICE_LOOP
+  // 4 = EXTREME
+  [SolutionType.FRANKEN_SQUIRMBAG]:       4,
+  [SolutionType.FRANKEN_WHALE]:           4,
+  [SolutionType.FRANKEN_LEVIATHAN]:       4,
+  [SolutionType.FINNED_FRANKEN_SQUIRMBAG]:4,
+  [SolutionType.FINNED_FRANKEN_WHALE]:    4,
+  [SolutionType.FINNED_FRANKEN_LEVIATHAN]:4,
+  [SolutionType.MUTANT_X_WING]:           4,
+  [SolutionType.MUTANT_SWORDFISH]:        4,
+  [SolutionType.MUTANT_JELLYFISH]:        4,
+  [SolutionType.MUTANT_SQUIRMBAG]:        4,
+  [SolutionType.MUTANT_WHALE]:            4,
+  [SolutionType.MUTANT_LEVIATHAN]:        4,
+  [SolutionType.FINNED_MUTANT_X_WING]:    4,
+  [SolutionType.FINNED_MUTANT_SWORDFISH]: 4,
+  [SolutionType.FINNED_MUTANT_JELLYFISH]: 4,
+  [SolutionType.FINNED_MUTANT_SQUIRMBAG]: 4,
+  [SolutionType.FINNED_MUTANT_WHALE]:     4,
+  [SolutionType.FINNED_MUTANT_LEVIATHAN]: 4,
+  [SolutionType.KRAKEN_FISH]:             4,
+  [SolutionType.KRAKEN_FISH_TYPE_1]:      4,
+  [SolutionType.KRAKEN_FISH_TYPE_2]:      4,
+  [SolutionType.FORCING_CHAIN]:           4,
+  [SolutionType.FORCING_CHAIN_CONTRADICTION]: 4,
+  [SolutionType.FORCING_CHAIN_VERITY]:    4,
+  [SolutionType.FORCING_NET]:             4,
+  [SolutionType.FORCING_NET_CONTRADICTION]: 4,
+  [SolutionType.FORCING_NET_VERITY]:      4,
+  [SolutionType.TEMPLATE_SET]:            4,
+  [SolutionType.TEMPLATE_DEL]:            4,
+  [SolutionType.BRUTE_FORCE]:             4,
+};
+
 // ---------------------------------------------------------------------------
 // SudokuSolver — orchestrator delegating to specialised sub-solvers.
 // ---------------------------------------------------------------------------
@@ -329,6 +450,8 @@ export class SudokuSolver extends AbstractSolver {
     const maxThreshold = DIFFICULTY_LEVELS.find(d => d.name === maxDifficulty)!.maxScore;
     const steps: SolutionStep[] = [];
     let score = 0;
+    // Minimum difficulty level forced by any technique used (Java per-technique level).
+    let minLevelIdx = 0;
 
     outer: for (let i = 0; i < 10_000 && !this.sudoku.isSolved; i++) {
       await new Promise<void>(r => setTimeout(r, 0));
@@ -336,6 +459,9 @@ export class SudokuSolver extends AbstractSolver {
         const step = this._solverFor(type)?.getStep(type);
         if (step) {
           score += STEP_BASE_SCORES[step.type] ?? 0;
+          // Track minimum difficulty imposed by this technique (H7).
+          const techLevelIdx = STEP_MIN_DIFFICULTY_IDX[step.type] ?? 0;
+          if (techLevelIdx > minLevelIdx) minLevelIdx = techLevelIdx;
           this.doStep(step);
           steps.push(step);
           if (score > maxThreshold) break outer;
@@ -345,8 +471,8 @@ export class SudokuSolver extends AbstractSolver {
       break; // no step found
     }
 
-    // Walk up the difficulty ladder (mirrors Java's post-loop level promotion)
-    let levelIdx = 0;
+    // Walk up the difficulty ladder by score (mirrors Java's post-loop level promotion).
+    let levelIdx = minLevelIdx;
     while (levelIdx < DIFFICULTY_LEVELS.length - 1 && score > DIFFICULTY_LEVELS[levelIdx].maxScore) {
       levelIdx++;
     }

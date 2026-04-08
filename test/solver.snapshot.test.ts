@@ -146,10 +146,10 @@ describe("SudokuSolver — difficulty rating", () => {
     expect(r.score).toBe(196);
   });
 
-  test("naked-pair puzzle: solved=true, difficulty=EASY, score=238", async () => {
+  test("naked-pair puzzle: solved=true, difficulty=MEDIUM, score=238", async () => {
     const r = await SudokuSolver.rate(P.NAKED_PAIR_PUZZLE);
     expect(r.solved).toBe(true);
-    expect(r.difficulty).toBe("EASY");
+    expect(r.difficulty).toBe("MEDIUM"); // H7: NAKED_PAIR forces min-level=MEDIUM
     expect(r.score).toBe(238);
   });
 
@@ -160,10 +160,10 @@ describe("SudokuSolver — difficulty rating", () => {
     expect(r.score).toBe(496);
   });
 
-  test("uniqueness-1 puzzle: solved=true, difficulty=EASY, score=624", async () => {
+  test("uniqueness-1 puzzle: solved=true, difficulty=HARD, score=624", async () => {
     const r = await SudokuSolver.rate(P.UNIQUENESS_1_PUZZLE);
     expect(r.solved).toBe(true);
-    expect(r.difficulty).toBe("EASY");
+    expect(r.difficulty).toBe("HARD"); // H7: UNIQUENESS_1 forces min-level=HARD
     expect(r.score).toBe(624);
   });
 
