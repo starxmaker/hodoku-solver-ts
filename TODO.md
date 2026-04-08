@@ -198,7 +198,7 @@ The following areas were audited and found equivalent to Java:
 | `Sudoku2._placeDigit` — removes placed digit from all buddy candidates | ✅ |
 | `AbstractSolver.doStep` — applies `setValue` for placements, `removeCandidate` for eliminations | ✅ |
 | `ColoringSolver` algorithm — WRAP/TRAP logic per component matches Java exactly | ✅ |
-| `WingSolver` algorithms — XY-Wing, XYZ-Wing, W-Wing (including `else-if` single-link constraint) match Java | ✅ |
+| `WingSolver` algorithms — XY-Wing and XYZ-Wing match Java exactly; W-Wing bridge-cell elimination exclusion is too broad — **see H20** | ✅ (W-Wing gap — H20) |
 | `MiscellaneousSolver` SUE_DE_COQ algorithm — intersection subsets, line/block enumeration, allowed-cand mask, elimination formulas all match Java | ✅ |
 | `UniquenessSolver` UR1–UR6, Hidden Rectangle, Avoidable Rectangle 1/2, BUG+1 — all algorithms verified correct | ✅ |
 | `ChainSolver` X-Chain, XY-Chain, Remote Pair — chain length cap (20), DFS structure, elimination rules all match Java | ✅ |
@@ -665,6 +665,26 @@ if (rowArmCount < 2 && colArmCount < 2) continue; // both arms short → skip
 ```
 
 File: `src/solver/SingleDigitPatternSolver.ts`, `_collectEmptyRectangles`.
+
+---
+
+### H20 — WingSolver `_findWWing`: strong-link cells excluded from eliminations
+
+In Java's `getWWing`, the `elimSet` is computed as all cells that (a) see both bivalue cells `ci`/`cj` and (b) hold the elimination candidate `c1`. The strong-link bridge cells (`wIndex1`, `wIndex2`) are **not** explicitly excluded from `elimSet`. If a bridge cell has `c1` AND sees both `ci` and `cj`, Java eliminates `c1` from it.
+
+In TS `_findWWing`:
+```ts
+if (cell === cj || cell === linkA || cell === linkB) continue;
+```
+`linkA` and `linkB` are always skipped, even when they hold `elim` and see both bivalue cells.
+
+**Why Java is correct:** The W-Wing proof guarantees at least one of `ci`/`cj` equals `c1`. A cell seeing both must therefore see a cell that equals `c1`, so it cannot itself be `c1`. This applies to any cell seeing both bivalue cells — including the link cells.
+
+**Impact:** Rare in practice (requires a bridge cell to have `c1` AND be a buddy of both `ci` and `cj`), but when it occurs TS misses a valid W-Wing elimination. **W_WING is enabled by default.**
+
+**Fix:** Remove `cell === linkA || cell === linkB` from the skip condition in the elimination loop.
+
+File: `src/solver/WingSolver.ts`, `_findWWing`.
 
 ---
 
