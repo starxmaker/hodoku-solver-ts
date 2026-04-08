@@ -61,6 +61,8 @@ export class ChainSolver extends AbstractSolver {
     const { values, candidates } = this.sudoku;
     const BUDDIES = Sudoku2.BUDDIES;
     const HOUSES = Sudoku2.HOUSES;
+    // H16: search all digits/starts and return globally shortest chain (mirrors Java sort-by-length).
+    let globalBest: { del: Candidate[]; len: number } | null = null;
 
     for (let d = 1; d <= 9; d++) {
       // Build strong links: pairs of cells with exactly 2 occurrences in a house
@@ -83,11 +85,16 @@ export class ChainSolver extends AbstractSolver {
       // Chain alternates: strong, weak, strong, weak, ...
       // Chain must end on a strong link (length >= 3).
       for (const startCell of strongAdj.keys()) {
-        const step = this._xChainDFS(d, startCell, strongAdj, values, candidates, BUDDIES);
-        if (step) return { type: SolutionType.X_CHAIN, placements: [], candidatesToDelete: step };
+        const result = this._xChainDFS(d, startCell, strongAdj, values, candidates, BUDDIES,
+          globalBest?.len ?? 20);
+        if (result && (!globalBest || result.len < globalBest.len)) {
+          globalBest = result;
+        }
       }
     }
-    return null;
+    return globalBest
+      ? { type: SolutionType.X_CHAIN, placements: [], candidatesToDelete: globalBest.del }
+      : null;
   }
 
   private _xChainDFS(
@@ -95,13 +102,15 @@ export class ChainSolver extends AbstractSolver {
     strongAdj: Map<number, Set<number>>,
     values: number[], candidates: number[],
     BUDDIES: readonly (readonly number[])[],
-  ): Candidate[] | null {
+    maxLen: number, // H16: globally best chain length so far (prune threshold)
+  ): { del: Candidate[]; len: number } | null {
     const chain: number[] = [start];
     const visited = new Set<number>([start]);
+    let best: { del: Candidate[]; len: number } | null = null;
 
-      const MAX_CHAIN = 20; // practical cap (Java uses 162; most puzzles need ≤20)
-    const dfs = (cell: number, nextIsStrong: boolean): Candidate[] | null => {
-      if (chain.length >= MAX_CHAIN) return null;
+    const dfs = (cell: number, nextIsStrong: boolean): void => {
+      const cap = best ? best.len : maxLen;
+      if (chain.length >= cap) return; // H16: prune branches longer than current best
       if (nextIsStrong) {
         // Next link must be a strong link
         for (const next of (strongAdj.get(cell) ?? [])) {
@@ -111,10 +120,11 @@ export class ChainSolver extends AbstractSolver {
           // Valid end: chain has >=4 nodes (>=3 links) starting and ending strong
           if (chain.length >= 4) {
             const del = _commonBuddyElims(start, next, d, values, candidates, BUDDIES);
-            if (del.length) return del;
+            if (del.length && (!best || chain.length < best.len)) {
+              best = { del, len: chain.length };
+            }
           }
-          const res = dfs(next, false);
-          if (res) return res;
+          dfs(next, false);
           chain.pop();
           visited.delete(next);
         }
@@ -126,16 +136,15 @@ export class ChainSolver extends AbstractSolver {
           if (!(candidates[next] & (1 << d))) continue;
           chain.push(next);
           visited.add(next);
-          const res = dfs(next, true);
-          if (res) return res;
+          dfs(next, true);
           chain.pop();
           visited.delete(next);
         }
       }
-      return null;
     };
 
-    return dfs(start, true);
+    dfs(start, true);
+    return best;
   }
 
   // ── XY-Chain ──────────────────────────────────────────────────────────────
@@ -153,6 +162,43 @@ export class ChainSolver extends AbstractSolver {
       if (values[i] === 0 && this.sudoku.candidateCount(i) === 2) biCells.push(i);
     }
 
+    // H16: collect globally shortest chain across all starts (mirrors Java sort-by-length).
+    // Use an object wrapper so TypeScript's narrowing works through closure mutations.
+    const state: { best: { del: Candidate[]; len: number } | null } = { best: null };
+
+    const dfs = (
+      cell: number, curD: number, startD: number,
+      chain: number[], visited: Set<number>,
+    ): void => {
+      if (chain.length >= (state.best?.len ?? 20)) return; // H16: prune
+      for (const next of biCells) {
+        if (visited.has(next)) continue;
+        if (!(candidates[next] & (1 << curD))) continue;
+        if (!BUDDIES[cell].includes(next)) continue;
+        let exitD = 0;
+        const nm = candidates[next];
+        for (let d = 1; d <= 9; d++) {
+          if ((nm & (1 << d)) && d !== curD) { exitD = d; break; }
+        }
+        if (!exitD) continue;
+
+        chain.push(next);
+        visited.add(next);
+
+        // Check: if chain has >=3 nodes and exitD === startD, we have a valid chain
+        if (chain.length >= 3 && exitD === startD) {
+          const del = _commonBuddyElims(chain[0], next, startD, values, candidates, BUDDIES);
+          if (del.length && (!state.best || chain.length < state.best.len)) {
+            state.best = { del, len: chain.length };
+          }
+        }
+
+        dfs(next, exitD, startD, chain, visited);
+        chain.pop();
+        visited.delete(next);
+      }
+    };
+
     for (const start of biCells) {
       const startMask = candidates[start];
       let sc1 = 0, sc2 = 0;
@@ -164,58 +210,12 @@ export class ChainSolver extends AbstractSolver {
       for (const [entryD, exitD] of [[sc1, sc2], [sc2, sc1]] as [number, number][]) {
         // Start: we "enter" with entryD, which means entryD is false at start.
         // So we exit with exitD (strong within-cell link).
-        const chain = [start];
-        const visited = new Set([start]);
-        const res = this._xyChainDFS(start, exitD, entryD, chain, visited, biCells, values, candidates, BUDDIES);
-        if (res) return { type: SolutionType.XY_CHAIN, placements: [], candidatesToDelete: res };
+        dfs(start, exitD, entryD, [start], new Set([start]));
       }
     }
-    return null;
-  }
-
-  /** DFS for XY-Chain.
-   * @param cell       Current cell
-   * @param curD       Candidate we are "carrying out" of cell (to propagate)
-   * @param startD     The candidate we started with (elimination target)
-   * @param chain      Current path
-   * @param visited    Visited cells
-   */
-  private _xyChainDFS(
-    cell: number, curD: number, startD: number,
-    chain: number[], visited: Set<number>,
-    biCells: number[], values: number[], candidates: number[],
-    BUDDIES: readonly (readonly number[])[],
-  ): Candidate[] | null {
-    if (chain.length >= 20) return null; // practical cap (Java uses 162; most puzzles need ≤20)
-    // Look for a bivalue neighbour that has curD as a candidate
-    for (const next of biCells) {
-      if (visited.has(next)) continue;
-      if (!(candidates[next] & (1 << curD))) continue;
-      if (!BUDDIES[cell].includes(next)) continue;
-      // Enter next with curD; exit with the other candidate
-      let exitD = 0;
-      const nm = candidates[next];
-      for (let d = 1; d <= 9; d++) {
-        if ((nm & (1 << d)) && d !== curD) { exitD = d; break; }
-      }
-      if (!exitD) continue;
-
-      chain.push(next);
-      visited.add(next);
-
-      // Check: if chain has >=3 nodes and exitD === startD, we have a valid chain
-      if (chain.length >= 3 && exitD === startD) {
-        const del = _commonBuddyElims(chain[0], next, startD, values, candidates, BUDDIES);
-        if (del.length) return del;
-      }
-
-      const res = this._xyChainDFS(next, exitD, startD, chain, visited, biCells, values, candidates, BUDDIES);
-      if (res) return res;
-
-      chain.pop();
-      visited.delete(next);
-    }
-    return null;
+    const best = state.best;
+    if (!best) return null;
+    return { type: SolutionType.XY_CHAIN, placements: [], candidatesToDelete: best.del };
   }
 
   // ── Remote Pair ────────────────────────────────────────────────────────────

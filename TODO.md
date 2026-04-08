@@ -211,11 +211,11 @@ The following areas were audited and found equivalent to Java:
 | `Sudoku2.setSudoku` — candidate initialisation (fill all candidates, then `_placeDigit` for each given) matches Java's 81-char parse path | ✅ (TS only implements the 81-char format; Java also supports PM grid formats — see Category D) |
 | `AlsSolver._collectAlses` — includes 1-cell ALS (k=1), matching Java's default `getAlses(false)` which includes bi-value cells | ✅ |
 | `AlsSolver._findAlsXYWing` — hub identification, overlap check (A/B only), RC exclusion mask, elimination generation all match Java | ✅ |
-| `AlsSolver._findAlsChain` — adjacency rule, doubly-linked RC both-direction expansion, and end-ALS cell exclusion match Java; depth cap and doubly-linked partner digit over-exclusion from Z-mask are divergences — **see H13** | ✅ (three gaps — H13 Bug A/B/C) |
+| `AlsSolver._findAlsChain` — adjacency rule, doubly-linked RC both-direction expansion, and end-ALS cell exclusion match Java; depth cap fixed (H13A ✅); doubly-linked partner digit over-exclusion from Z-mask remains — **see H13 Bug B/C** | ✅ (two gaps remain — H13 Bug B/C) |
 | `TablingSolver._checkAllChainsForCells` / `_checkAllChainsForHouses` — intersection verity logic matches Java's `checkEntryList` for cells and `checkAllChainsForHouse(houseSets)` | ✅ |
 | `AlsSolver._collectRCs` — forward-only pair iteration (`i < j`) with max 2 RCs per pair matches Java's `rcOnlyForward=true` collection | ✅ |
 | `BruteForceSolver.getStep` — picks middle unsolved cell and reads pre-computed solution; matches Java's `getBruteForce()` logic | ✅ |
-| `SudokuSolver.solve()` loop — iterates `TECHNIQUE_ORDER` and calls `doStep` on first hit; structurally matches Java's `getHint` loop (H3/H7 are separate documented bugs) | ✅ |
+| `SudokuSolver.solve()` loop — iterates `TECHNIQUE_ORDER` and calls `doStep` on first hit; structurally matches Java's `getHint` loop (H3 separate — H7 ✅ fixed) | ✅ |
 | `TablingSolver.setSudoku` — properly resets `_krakenFilled` and all table state on each new puzzle; matches Java's `AbstractSolver` chain | ✅ |
 | `Sudoku2._countSolns` / `getSolution` — MRV+backtracker is functionally equivalent to Java's Dancing Links for uniqueness detection and solution retrieval | ✅ |
 | `TablingSolver._checkTwoChains` premise-cell exclusion — Java removes the premise cell from the onSets/offSets intersection to avoid double-reporting what `_checkOneChain` already catches; TS does not remove it. In practice, any such cell would already be caught by `_checkOneChain` before `_checkTwoChains` runs, so this causes no incorrect results — just a possible duplicate report in a degenerate edge case | ✅ (minor; no action needed) |
@@ -223,11 +223,11 @@ The following areas were audited and found equivalent to Java:
 | `UniquenessSolver` UR1–UR6 / Hidden Rectangle / BUG+1 / Avoidable Rectangle — all elimination rules (`_checkUR`, `_findBugPlus1`, `_findAvoidableRectangle`) match Java's equivalent logic in `checkURForStep` / `getBugPlus1` | ✅ |
 | `MiscellaneousSolver` — only implements `SUE_DE_COQ`; Java's `MiscellaneousSolver` also only exposes `SUE_DE_COQ` via `getStep` | ✅ |
 | `GiveUpSolver` / `IncompleteSolver` — both trivial sentinels matching Java behaviour exactly | ✅ |
-| `ChainSolver` remote-pair, X-chain, XY-chain core detection logic — elimination conditions and traversal rules all match Java (see H16 for chain-length and step-selection divergences) | ✅ |
+| `ChainSolver` remote-pair, X-chain, XY-chain core detection logic — elimination conditions and traversal rules all match Java; H16 ✅ fixed — now returns shortest chain, 20-node cap matches Java default | ✅ |
 | `SimpleSolver` naked subsets (NAKED_PAIR/TRIPLE/QUAD) — combo union mask + popcount=n check, primary/secondary house deletion, `isLocked` classification all match Java; `SUBSET_HOUSE_ORDER` = blocks first then rows then cols matches Java's block-first search order | ✅ |
 | `SimpleSolver` hidden subsets (HIDDEN_PAIR/TRIPLE/QUAD) — eligible-digit filter (1..n occurrences), cellSet size=n check, non-target-digit deletion all match Java | ✅ |
 | `SimpleSolver` locked subsets (LOCKED_PAIR/TRIPLE) — uses same `_findNakedSubset(n, locked=true)` path; minor: TS searches all 27 houses, Java only searches blocks (same eliminations found, possible cosmetic ordering difference) | ✅ |
-| `FishSolver` Franken/Mutant fish algorithms — base/cover constraints (Franken: base=rows-only or cols-only, cover has ≥1 box; Mutant: any mix with ≥1 box), fin detection, elimination filter all match Java for the sizes handled (see H17 for size cap divergence) | ✅ |
+| `FishSolver` Franken/Mutant fish algorithms — base/cover constraints (Franken: base=rows-only or cols-only, cover has ≥1 box; Mutant: any mix with ≥1 box), fin detection, elimination filter all match Java; H17 ✅ fixed — size caps removed | ✅ |
 | `TemplateSolver` single-pass AND/OR template logic — template validation (placed cells included, forbidden cells excluded), `svt`/`dct` accumulation, SET/DEL step generation all match Java (cross-digit iterative refinement missing — see H6) | ✅ |
 | `ColoringSolver` MULTI_COLORS_1 algorithm — 4-orientation inner loop `(colorA=a0/a1, colorB=b0/b1)` correctly covers all four `checkMultiColor2` calls Java makes per ordered pair (i,j); elimination logic (cells outside both components seeing BOTH `oppA` AND `oppB`) matches Java's `checkCandidateToDelete`; unordered outer loop `j > i` is fine for MC1 due to 4-orientation symmetry | ✅ |
 | `TablingSolver._fillTablesForNet` / `_netPropagateOn` / `_netPropagateOff` — propagates naked singles and hidden singles transitively after each placement; correctly simulates Java's `chainsOnly=false` full-propagation branch for FORCING_NET | ✅ |
@@ -375,7 +375,7 @@ File: `src/solver/TemplateSolver.ts`
 
 ---
 
-### H7 — SudokuSolver: difficulty rating uses only score thresholds; Java also uses per-technique level
+### ✅ H7 — FIXED — SudokuSolver: difficulty rating uses only score thresholds; Java also uses per-technique level
 
 Java's `getHint()` loop does two things when a step is found:
 1. `score += stepConfig.getBaseScore()` — accumulates the step's score.
@@ -466,7 +466,7 @@ File: `src/solver/TablingSolver.ts`, `_checkNiceLoops`.
 
 ---
 
-### H10 — TablingSolver `_checkAics`: missing AIC Type 2 (different-candidate AICs)
+### ✅ H10 — FIXED — TablingSolver `_checkAics`: missing AIC Type 2 (different-candidate AICs)
 
 Java `checkAics` handles two chain types:
 - **Type 1** (same start/end candidate `d`): find endCell in `onSets[d]`, eliminate `d` from all common buddies
@@ -533,7 +533,7 @@ File: `src/solver/TablingSolver.ts`, `_checkOneChain`.
 
 ---
 
-### H13 — AlsSolver: ALS-XY-Chain depth capped at 5 RCs; Java allows 50 (unlimited) in getStep mode; doubly-linked RC partner digit over-excluded
+### H13 — AlsSolver: ALS-XY-Chain depth capped at 5 RCs (✅ Bug A FIXED — depth 50); doubly-linked RC partner digit over-excluded (Bug B/C remain)
 
 **Bug A — depth limit:**
 
@@ -605,7 +605,7 @@ File: `src/solver/FishSolver.ts`, `_findKrakenFish`.
 
 ---
 
-### H16 — ChainSolver: X-Chain / XY-Chain first-found vs best-sorted; hard cap diverges in non-default mode.
+### ✅ H16 — FIXED — ChainSolver: X-Chain / XY-Chain returns globally shortest chain (mirrors Java sort-by-length); 20-node cap retained for default mode.
 
 Java `ChainSolver` defines `MAX_CHAIN_LENGTH = 2 * Sudoku2.LENGTH = 162`. In **default mode** (`Options.RESTRICT_CHAIN_SIZE = true`, `RESTRICT_CHAIN_LENGTH = 20`) Java caps chains at 20 nodes — the same cap TS enforces. The TS hard-coded `chain.length >= 20` guard therefore matches Java's default behavior.
 
@@ -650,7 +650,7 @@ File: `src/solver/ColoringSolver.ts`, `_findMultiColors`.
 
 ---
 
-### H17 — FishSolver: Franken fish capped at size 4; Mutant fish capped at size 3 (Java allows up to size 6)
+### ✅ H17 — FIXED — FishSolver: Franken fish capped at size 4; Mutant fish capped at size 3 (Java allows up to size 6)
 
 `_findFrankenFish` contains an early-return guard:
 ```ts

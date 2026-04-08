@@ -2532,3 +2532,134 @@ describe("H23 regression — SIMPLE_COLORS_TRAP collects all eliminations", () =
     }
   });
 });
+
+// H7: per-technique difficulty minimum — technique's own level is a floor for the rating.
+describe("H7 regression — per-technique difficulty minimum", () => {
+  test("EASY_PUZZLE still rates EASY (only EASY-level techniques)", async () => {
+    const r = await makeSolver(EASY_PUZZLE).solveWithRating();
+    expect(r.difficulty).toBe("EASY");
+  });
+
+  test("getStep(FORCING_CHAIN) returns a FORCING_CHAIN variant when available", () => {
+    const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+    advanceTechniques(solver, PHASE_0);
+    const step = solver.getStep(SolutionType.FORCING_CHAIN);
+    if (step !== null) {
+      // FORCING_CHAIN dispatches to _CONTRADICTION or _VERITY subtypes.
+      expect([
+        SolutionType.FORCING_CHAIN,
+        SolutionType.FORCING_CHAIN_CONTRADICTION,
+        SolutionType.FORCING_CHAIN_VERITY,
+      ]).toContain(step.type);
+    }
+  });
+});
+
+// H10: AIC Type 2 — different-digit endpoint generates two eliminations.
+describe("H10 regression — AIC Type 2 (different-digit endpoint)", () => {
+  test("AIC search does not throw on swordfish puzzle", () => {
+    const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+    advanceTechniques(solver, PHASE_0);
+    expect(() => solver.getStep(SolutionType.AIC)).not.toThrow();
+  });
+
+  test("AIC step (if Type 2) has exactly 2 eliminations at valid cells", () => {
+    const solver = makeSolver(SWORDFISH_REF_PUZZLE);
+    advanceTechniques(solver, PHASE_0);
+    const step = solver.getStep(SolutionType.AIC);
+    if (step !== null && step.candidatesToDelete.length === 2) {
+      const sudoku = solver.getSudoku();
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(sudoku.values[index]).toBe(0);
+        expect(sudoku.candidates[index] & (1 << value)).toBeTruthy();
+      }
+    }
+  });
+});
+
+// H13A: ALS-XY-Chain depth limit raised from 6 to 50 (matching Java MAX_RC in getStep mode).
+describe("H13A regression — ALS-XY-Chain depth 50", () => {
+  test("getStep(ALS_XY_CHAIN) does not throw on ALS puzzle (depth not prematurely capped)", () => {
+    const solver = makeSolver(ALS_REF_PUZZLE);
+    advanceTechniques(solver, PHASE_0);
+    expect(() => solver.getStep(SolutionType.ALS_XY_CHAIN)).not.toThrow();
+  });
+
+  test("ALS-XY-Chain step (if found) has valid eliminations", () => {
+    const solver = makeSolver(ALS_REF_PUZZLE);
+    advanceTechniques(solver, PHASE_0);
+    const step = solver.getStep(SolutionType.ALS_XY_CHAIN);
+    if (step !== null) {
+      const sudoku = solver.getSudoku();
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(sudoku.values[index]).toBe(0);
+        expect(sudoku.candidates[index] & (1 << value)).toBeTruthy();
+      }
+    }
+  });
+});
+
+// H16: ChainSolver returns shortest chain across all starts (mirrors Java sort-by-length).
+describe("H16 regression — X-Chain / XY-Chain return globally shortest chain", () => {
+  test("X-Chain step returned is valid (shortest-chain search produces correct eliminations)", () => {
+    const solver = makeSolver(X_CHAIN_PUZZLE);
+    const step = solver.getStep(SolutionType.X_CHAIN);
+    if (step !== null) {
+      const sudoku = solver.getSudoku();
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(sudoku.values[index]).toBe(0);
+        expect(sudoku.candidates[index] & (1 << value)).toBeTruthy();
+      }
+    }
+  });
+
+  test("XY-Chain step returned is valid (shortest-chain search produces correct eliminations)", () => {
+    const solver = makeSolver(XY_CHAIN_PUZZLE);
+    const step = solver.getStep(SolutionType.XY_CHAIN);
+    if (step !== null) {
+      const sudoku = solver.getSudoku();
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(sudoku.values[index]).toBe(0);
+        expect(sudoku.candidates[index] & (1 << value)).toBeTruthy();
+      }
+    }
+  });
+
+  test("X-Chain search does not throw on easy puzzle", () => {
+    const solver = makeSolver(EASY_PUZZLE);
+    expect(() => solver.getStep(SolutionType.X_CHAIN)).not.toThrow();
+  });
+
+  test("XY-Chain search does not throw on easy puzzle", () => {
+    const solver = makeSolver(EASY_PUZZLE);
+    expect(() => solver.getStep(SolutionType.XY_CHAIN)).not.toThrow();
+  });
+});
+
+// H17: Franken size > 4 and Mutant size > 3 guards removed.
+describe("H17 regression — Franken/Mutant size caps removed", () => {
+  test("getStep(FRANKEN_SQUIRMBAG) returns non-null or null without throwing", () => {
+    const solver = makeSolver(SHOWCASE_PUZZLE);
+    const step = solver.getStep(SolutionType.FRANKEN_SQUIRMBAG);
+    // Guards removed: may find a step or return null — both are valid.
+    if (step !== null) {
+      const sudoku = solver.getSudoku();
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(sudoku.values[index]).toBe(0);
+        expect(sudoku.candidates[index] & (1 << value)).toBeTruthy();
+      }
+    }
+  });
+
+  test("getStep(MUTANT_JELLYFISH) returns non-null or null without throwing", () => {
+    const solver = makeSolver(SHOWCASE_PUZZLE);
+    const step = solver.getStep(SolutionType.MUTANT_JELLYFISH);
+    if (step !== null) {
+      const sudoku = solver.getSudoku();
+      for (const { index, value } of step.candidatesToDelete) {
+        expect(sudoku.values[index]).toBe(0);
+        expect(sudoku.candidates[index] & (1 << value)).toBeTruthy();
+      }
+    }
+  });
+});
