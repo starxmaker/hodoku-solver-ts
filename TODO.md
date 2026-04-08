@@ -197,7 +197,7 @@ The following areas were audited and found equivalent to Java:
 | ALS pair scanning direction — TS `ai < aj` + both-direction adj entries matches Java default | ✅ |
 | `Sudoku2._placeDigit` — removes placed digit from all buddy candidates | ✅ |
 | `AbstractSolver.doStep` — applies `setValue` for placements, `removeCandidate` for eliminations | ✅ |
-| `ColoringSolver` algorithm — WRAP/TRAP logic per component matches Java exactly | ✅ |
+| `ColoringSolver` algorithm — WRAP/TRAP dispatch correct; SIMPLE_COLORS_TRAP collects only 1 elimination per call instead of all matching cells — **see H23** | ✅ (TRAP single-elim gap — H23) |
 | `WingSolver` algorithms — XY-Wing and XYZ-Wing match Java exactly; W-Wing bridge-cell elimination exclusion is too broad — **see H20** | ✅ (W-Wing gap — H20) |
 | `MiscellaneousSolver` SUE_DE_COQ algorithm — intersection subsets, line/block enumeration, allowed-cand mask, elimination formulas all match Java | ✅ |
 | `UniquenessSolver` UR1–UR6, Hidden Rectangle, Avoidable Rectangle 1/2, BUG+1 — all algorithms verified correct | ✅ |
@@ -211,6 +211,7 @@ The following areas were audited and found equivalent to Java:
 | `Sudoku2.setSudoku` — candidate initialisation (fill all candidates, then `_placeDigit` for each given) matches Java's 81-char parse path | ✅ (TS only implements the 81-char format; Java also supports PM grid formats — see Category D) |
 | `AlsSolver._collectAlses` — includes 1-cell ALS (k=1), matching Java's default `getAlses(false)` which includes bi-value cells | ✅ |
 | `AlsSolver._findAlsXYWing` — hub identification, overlap check (A/B only), RC exclusion mask, elimination generation all match Java | ✅ |
+| `AlsSolver._findAlsChain` — adjacency rule, doubly-linked RC both-direction expansion, and end-ALS cell exclusion match Java; depth cap and doubly-linked partner digit over-exclusion from Z-mask are divergences — **see H13** | ✅ (three gaps — H13 Bug A/B/C) |
 | `TablingSolver._checkAllChainsForCells` / `_checkAllChainsForHouses` — intersection verity logic matches Java's `checkEntryList` for cells and `checkAllChainsForHouse(houseSets)` | ✅ |
 | `AlsSolver._collectRCs` — forward-only pair iteration (`i < j`) with max 2 RCs per pair matches Java's `rcOnlyForward=true` collection | ✅ |
 | `BruteForceSolver.getStep` — picks middle unsolved cell and reads pre-computed solution; matches Java's `getBruteForce()` logic | ✅ |
@@ -522,7 +523,9 @@ File: `src/solver/TablingSolver.ts`, `_checkOneChain`.
 
 ---
 
-### H13 — AlsSolver: ALS-XY-Chain depth capped at 5 RCs; Java allows 50 (unlimited) in getStep mode
+### H13 — AlsSolver: ALS-XY-Chain depth capped at 5 RCs; Java allows 50 (unlimited) in getStep mode; doubly-linked RC partner digit over-excluded
+
+**Bug A — depth limit:**
 
 Java's `AlsSolver.getStep(ALS_XY_CHAIN)` explicitly resets the chain array:
 ```java
@@ -534,13 +537,45 @@ TS `_alsChainDFS` returns null when `chain.length > 6`, limiting chains to **5 R
 
 Category F previously marked this as "ALS-XY-Chain depth = 6 ✓" — that was incorrect; the `6` default from `ALL_STEPS_ALS_CHAIN_LENGTH` applies only to the `getAllAlses` (find-all) mode, not to `getStep`.
 
-**Additional direction difference:** Java's `getStep` mode calls `finder.setRcOnlyForward(true)`, which means RCs are stored only for pairs where `als1.index < als2.index`. The chain search from any starting ALS can only reach higher-indexed ALS (monotonically increasing). TS adds both `(i→j)` and `(j→i)` directions to the adjacency map, so TS can traverse chains in any order. TS finds a strict superset of Java's ALS-XY-Chain steps (more complete).
+**Bug B — direction:**
 
-**Impact:** Practical impact low — very long ALS chains are rare. Both divergences make TS simultaneously more restricted (max 5 RCs) and more permissive (bidirectional search) than Java. ALS_XY_CHAIN is disabled in Java's default mode anyway (H3).
+Java's `getStep` mode calls `finder.setRcOnlyForward(true)`, which means RCs are stored only for pairs where `als1.index < als2.index`. The chain search from any starting ALS can only reach higher-indexed ALS (monotonically increasing). TS adds both `(i→j)` and `(j→i)` directions to the adjacency map, so TS can traverse chains in any order. TS finds a strict superset of Java's ALS-XY-Chain steps (more complete).
 
-**Fix:** Change `if (chain.length > 6) return null` to a configurable limit (default 50), and consider making RC direction configurable (default forward-only).
+**Bug C — doubly-linked RC partner digit over-excluded from Z-candidate mask:**
 
-File: `src/solver/AlsSolver.ts`, `_findAlsChain`, `_alsChainDFS`.
+When the first (or last) link of a chain is a doubly-linked RC with digits `{d1, d2}` but only `d1` is the *active* RC digit for this chain traversal (Java's `actualRC = 1`), Java excludes **only `d1`** from the Z-elimination mask:
+```java
+c1 = firstRC.getCand1(); c2 = firstRC.getCand2();
+if (firstRC.getActualRC() == 1) { c2 = 0; }  // only cand1 active → cand2 not excluded
+checkCandidatesToDelete(startAls, aktAls, c1, c2, c3, c4, null);
+// inside: only masks where restr != -1 && restr != 0 are excluded;  c2=0 → not excluded
+```
+
+TS `_checkAlsChainElims` always excludes **both** `firstRcD` and `firstRcD2` (the partner):
+```ts
+let rcMask = (1 << firstRcD) | (1 << lastRcD);
+if (firstRcD2 > 0) rcMask |= (1 << firstRcD2);   // ← partner digit always excluded
+if (lastRcD2  > 0) rcMask |= (1 << lastRcD2);
+```
+
+**Scenario:** Chain `A —[d1(active), d2(partner)]→ B —...→ Z`. If digit `d2` is also a common candidate in both `A` (startAls) and `Z` (endAls), and buddies exist that see all `d2`-cells in both:
+- Java: `d2` is eligible for Z-elimination (not excluded — only `d1` is the active RC of the first link).
+- TS: `d2` is incorrectly excluded because `firstRcD2 = d2`.
+
+**Impact:** TS misses valid ALS-XY-Chain eliminations when a doubly-linked first or last RC exists and the partner digit is also a valid Z-candidate. ALS_XY_CHAIN is disabled in Java's default mode (H3), so only affects explicit enablement.
+
+**Fix (Bug A):** Change `if (chain.length > 6) return null` to a configurable limit (default 50).
+
+**Fix (Bug B):** Optionally make RC direction configurable (forward-only by default).
+
+**Fix (Bug C):** Do not include `d2` (partner digit) in `rcMask` when it is not the active RC digit. Track which RC digit is truly active (the one that passed the adjacency check) rather than blindly including the partner. Remove `if (firstRcD2 > 0) rcMask |= (1 << firstRcD2)` and `if (lastRcD2 > 0) rcMask |= (1 << lastRcD2)`:
+```ts
+// Only exclude the ACTIVE RC digit of the end links:
+let rcMask = (1 << firstRcD) | (1 << lastRcD);
+// Do NOT add firstRcD2 or lastRcD2 — partner digits are not active RCs in this chain
+```
+
+File: `src/solver/AlsSolver.ts`, `_findAlsChain`, `_alsChainDFS`, `_checkAlsChainElims`.
 
 ---
 
@@ -560,23 +595,21 @@ File: `src/solver/FishSolver.ts`, `_findKrakenFish`.
 
 ---
 
-### H16 — ChainSolver: X-Chain / XY-Chain capped at 20 nodes; Java allows 162. First-found vs best-sorted.
+### H16 — ChainSolver: X-Chain / XY-Chain first-found vs best-sorted; hard cap diverges in non-default mode.
 
-Java `ChainSolver` defines `MAX_CHAIN_LENGTH = 2 * Sudoku2.LENGTH = 162`. TS `_xChainDFS` and `_xyChainDFS` both return null when `chain.length >= 20` (19 nodes maximum).
+Java `ChainSolver` defines `MAX_CHAIN_LENGTH = 2 * Sudoku2.LENGTH = 162`. In **default mode** (`Options.RESTRICT_CHAIN_SIZE = true`, `RESTRICT_CHAIN_LENGTH = 20`) Java caps chains at 20 nodes — the same cap TS enforces. The TS hard-coded `chain.length >= 20` guard therefore matches Java's default behavior.
 
-**Length difference:** TS may miss X-Chains and XY-Chains that require more than 19 nodes (very uncommon in practice, but theoretically possible).
+**Length difference (non-default mode only):** When a user sets `RESTRICT_CHAIN_SIZE = false` in Java, the cap rises to the architectural `MAX_CHAIN_LENGTH = 162`. TS always hard-caps at 20 regardless of settings, so it would miss longer chains in that non-default mode.
 
-**Step-selection difference:** Java collects *all* valid chains for a technique, sorts them by a custom comparator (shortest first), and returns the best. TS uses DFS and returns the *first* found chain (arbitrary DFS order). TS will return a valid chain, but it may not be the shortest or most "natural" one. This affects:
+**Step-selection difference (always active):** Java collects *all* valid chains for a technique, sorts them by a custom comparator (shortest first), and returns the best. TS uses DFS and returns the *first* found chain (arbitrary DFS order). TS will return a valid chain, but it may not be the shortest or most "natural" one. This affects:
 - Which specific pattern is shown in results (cosmetic)
 - Difficulty score consistency: same technique always scores the same, but if TS and Java choose different chains, later techniques may differ (very minor)
 
 **Remote Pair is unaffected:** TS `_remotePairDFS` has no explicit cap (the natural constraint is the number of cells sharing the same bivalue pair), matching Java's `stackLevel >= 7` threshold correctly.
 
-**Impact:** Cosmetic/edge-case. Both differences produce valid (correct) eliminations when they do find a chain.
+**Impact:** Length divergence: edge-case, non-default mode only. Step-selection divergence: cosmetic, always present.
 
-**Fix:** Change `if (chain.length >= 20) return null` to use a configurable cap (default 162), and optionally collect all chains and return the shortest to match Java's step-selection.
-
-File: `src/solver/ChainSolver.ts`, `_xChainDFS`, `_xyChainDFS`.
+**Fix:** Change `if (chain.length >= 20) return null` to use a configurable cap (default 20), and optionally collect all chains and return the shortest to match Java's step-selection.
 
 ---
 
@@ -830,6 +863,70 @@ TS `_expandTablesWithAls` only fires ALS exit-digit deletions (`buddiesFor[z]`);
 **Fix:** After `checkAlsOff` fires in the BFS, scan the ALS's buddy cells (union of `buddiesFor[z]` for all exit z) and check if total currently-deleted candidates leave exactly 1 remaining candidate in any of them; if so, add a forced-ON (`dest.addSet`) entry.
 
 File: `src/solver/TablingSolver.ts`, `_expandTablesWithAls`.
+
+---
+
+### H23 — ColoringSolver `_findSimpleColors`: SIMPLE_COLORS_TRAP returns only 1 elimination per step instead of all
+
+Java's `checkCandidateToDelete(set1, set2, cand)` accumulates **all** cells seeing both color halves before creating the step:
+
+```java
+deleteSet.clear();
+for (int i = 0; i < set1.size(); i++) {
+    for (int j = 0; j < set2.size(); j++) {
+        tmpSet1.set(Sudoku2.buddies[set1.get(i)]);
+        tmpSet1.and(Sudoku2.buddies[set2.get(j)]);
+        tmpSet1.and(finder.getCandidates()[cand]);
+        deleteSet.or(tmpSet1);  // accumulates ALL matching cells
+    }
+}
+// then addCandidateToDelete for every cell in deleteSet
+if (!deleteSet.isEmpty()) {
+    globalStep.addType(type);
+    for each cell in deleteSet: globalStep.addCandidateToDelete(cell, cand);
+    steps.add(globalStep.clone());
+}
+```
+
+TS `_findSimpleColors` iterates cells 0–80 and returns immediately upon finding the **first** cell satisfying `seesC0 && seesC1`:
+
+```ts
+for (let cell = 0; cell < 81; cell++) {
+    ...
+    if (seesC0 && seesC1) {
+        if (requestedType === SolutionType.SIMPLE_COLORS_WRAP) continue;
+        return {
+            type: SolutionType.SIMPLE_COLORS_TRAP,
+            placements: [],
+            candidatesToDelete: [{ index: cell, value: d as Digit }],  // ONE cell only
+        };
+    }
+}
+```
+
+**Secondary WRAP edge case:** If both color halves of a component wrap simultaneously (extremely rare), Java combines all wrapped cells from both halves in one WRAP step. TS checks them sequentially and returns on the first wrapping half found; the other half's wrapped cells are found on the next solver call.
+
+**Impact:** SIMPLE_COLORS is enabled by default. Puzzles where multiple cells see both color halves trigger multiple SIMPLE_COLORS_TRAP steps in TS where Java uses one. Each small step adds to the difficulty score (150 pts each), and after each partial elimination the solver re-runs from the top of `TECHNIQUE_ORDER`, potentially applying a different technique before finishing the trap cluster — altering the solving path.
+
+**Fix:** Collect all trap eliminations before returning instead of returning on first found:
+
+```ts
+// Replace early-return with accumulation:
+const trapDels: Candidate[] = [];
+for (let cell = 0; cell < 81; cell++) {
+    if (!candidates[d].includes(cell)) continue;
+    const seesC0 = c0.some(cc => Sudoku2.BUDDIES[cc].includes(cell));
+    const seesC1 = c1.some(cc => Sudoku2.BUDDIES[cc].includes(cell));
+    if (seesC0 && seesC1) trapDels.push({ index: cell, value: d as Digit });
+}
+if (trapDels.length > 0) {
+    if (requestedType !== SolutionType.SIMPLE_COLORS_WRAP) {
+        return { type: SolutionType.SIMPLE_COLORS_TRAP, placements: [], candidatesToDelete: trapDels };
+    }
+}
+```
+
+File: `src/solver/ColoringSolver.ts`, `_findSimpleColors`.
 
 ---
 
