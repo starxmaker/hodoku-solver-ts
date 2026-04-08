@@ -230,7 +230,7 @@ The following areas were audited and found equivalent to Java:
 | `TemplateSolver` single-pass AND/OR template logic — template validation (placed cells included, forbidden cells excluded), `svt`/`dct` accumulation, SET/DEL step generation all match Java (cross-digit iterative refinement missing — see H6) | ✅ |
 | `ColoringSolver` MULTI_COLORS_1 algorithm — 4-orientation inner loop `(colorA=a0/a1, colorB=b0/b1)` correctly covers all four `checkMultiColor2` calls Java makes per ordered pair (i,j); elimination logic (cells outside both components seeing BOTH `oppA` AND `oppB`) matches Java's `checkCandidateToDelete`; unordered outer loop `j > i` is fine for MC1 due to 4-orientation symmetry | ✅ |
 | `TablingSolver._fillTablesForNet` / `_netPropagateOn` / `_netPropagateOff` — propagates naked singles and hidden singles transitively after each placement; correctly simulates Java's `chainsOnly=false` full-propagation branch for FORCING_NET | ✅ |
-| `TablingSolver._expandTablesWithGroups` — group-OFF detection (all group cells present in `offSets[d]`) triggers forced singleton search in row/col/block; matches Java's group-node BFS for GROUPED_NICE_LOOP (**gap**: group-to-group strong link missing — G1-OFF → G2-ON when two non-overlapping groups cover all d-positions in a house; TS requires exactly 1 remaining singleton — **see H21**) | ✅ (group-to-group gap — H21) |
+| `TablingSolver._expandTablesWithGroups` — group-OFF detection triggers forced singleton ON in row/col/block; **gaps**: (1) G1-OFF → G2-ON when only two groups cover all d-positions (should delete d from G2-buddy cells, not addSet G2 cells individually) — **H21**; (2) S-OFF → G-ON when singleton S and group G exhaust house d-candidates (should delete d from G-buddy cells, never fired for non-group cells) — **H22** | ✅ (two gaps — H21, H22) |
 | `TablingSolver._checkForcingChains` — five-case contradiction/verity detection (premise↔inverse, same-candidate set+del, two-values-in-one-cell, same-value-twice-in-house, all-positions-of-digit-deleted-in-house) matches Java's `checkOneChain` / `checkTwoChains` / `checkAllChainsFor*` structure (see H12 for missing case 6, H4/H5/H9 for table-fill divergences) | ✅ |
 | `TablingSolver._fillTables` (chainsOnly=true) — ON-premise: deletes all other candidates from cell + deletes d from all peer buddies; OFF-premise: naked-single promotion (1 remaining candidate) + hidden-single-in-house (1 remaining position for d); matches Java's `fillTable(chainsOnly=true)` direct-implication logic | ✅ |
 | `TablingSolver._expandTablesWithAls` — BFS post-expansion with ALS fire condition (all entry-digit cells in `offSets[e]` → exit digits deleted from `buddiesFor[z]`); ALS-to-ALS chaining handled transitively by continuing BFS; matches Java's elimination propagation logic (buddy-forcing for ≥3-candidate cells missing — see H18) | ✅ |
@@ -702,39 +702,111 @@ if (lineAnz == 1) {               // exactly one other group in same row
 // same for cols and blocks
 ```
 
-Similarly, Java records the weak link G1-ON → G2-OFF (they share a house) via `onEntry.addEntry(G2, gn.cand, false)` for every non-overlapping G2 in the same house.
-
 TS `_expandTablesWithGroups` only fires a "group-OFF → cell-ON" implication when **exactly 1 single candidate** remains in the house after all group cells go OFF:
 
 ```ts
 if (remaining.length === 1 && dest.addSet(remaining[0], d)) { ... }
 ```
 
-When `remaining` holds 2+ cells belonging to a second group G2, `remaining.length === 2`, the condition fails, and no implication is recorded. The G1-OFF → G2-ON strong link is **never generated**.
+When `remaining` holds 2+ cells belonging to a second group G2, `remaining.length === 2`, the condition fails, and the G1-OFF → G2-ON strong link is **never generated**.
 
-**Impact:** GROUPED_NICE_LOOP / GROUPED_AIC steps that require a group-to-group strong link in their chain are missed by TS. This only triggers on puzzles where a house's entire set of `d`-candidates is partitioned into two non-singleton group nodes — rare but valid. Java's GROUPED_NICE_LOOP / GROUPED_AIC are disabled by default in Java (H3), so the practical impact is limited.
+**Impact:** GROUPED_NICE_LOOP / GROUPED_AIC steps requiring a group-to-group strong link are missed. Affects only puzzles where a house's `d`-candidates are partitioned into exactly two non-singleton groups. Java's GROUPED_NICE_LOOP is disabled by default (H3).
 
-**Fix:** In `_expandTablesWithGroups`'s `checkGroupOff` handler, after checking `remaining.length === 1`, also check whether all remaining cells belong to a single other group node G2 (i.e., `remaining` is a subset of G2.cells for some G2). If so, record the implication for every individual cell of G2 being forced ON:
+**Correct fix:** When G1 is fully OFF and `remaining` cells all belong to a single other group G2 (same size), fire **G2-ON implications** by deleting `d` from all cells in G2's buddy set — i.e., cells that can see ALL of G2:
 
 ```ts
-// After remaining.length === 1 check:
 if (remaining.length > 1) {
-  // Check if remaining cells all belong to a single group node G2
   const g2 = groupsByDigit[d].find(
-    gn => gn !== g && remaining.every(c => gn.cells.includes(c)) && remaining.length === gn.cells.length
+    gn => gn !== g && gn.cells.length === remaining.length
+       && remaining.every(c => gn.cells.includes(c))
   );
   if (g2) {
-    for (const c2 of g2.cells) {
-      if (dest.addSet(c2, d)) {
+    // G2 is forced ON: delete d from every cell that sees all of G2
+    const g2Buddies = g2.cells.reduce(
+      (acc, c) => acc.filter(b => Sudoku2.BUDDIES[c].includes(b)),
+      Array.from({ length: 81 }, (_, i) => i) as number[]
+    );
+    for (const bCell of g2Buddies) {
+      if (bCell === g2.cells[0] || g2.cells.includes(bCell)) continue; // skip G2 cells themselves
+      if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d)) continue;
+      if (dest.addDel(bCell, d)) {
         this._groupImplicationFired = true;
-        queue.push({ cell: c2, d, isOn: true });
+        queue.push({ cell: bCell, d, isOn: false });
+        for (const gk of groupsByDigit[d]) {
+          if (gk.cells.includes(bCell)) checkGroupOff(gk, dest, queue);
+        }
       }
     }
   }
 }
 ```
 
+> **Note:** The proposed fix in the previous draft (`addSet` for each G2 cell) was **incorrect**: it would mark ALL of G2's cells as `d = true`, which implies d appears in each cell individually and would wrongly propagate cell-level ON consequences. The group merely establishes that `d` is somewhere in G2 — which only justifies deleting `d` from cells that see the ENTIRE group (G2-buddies). G2 is **not** a GROUP_NODE chain entry in TS (unlike Java), so no chain-node-level representation is produced; only the buddy-deletion propagation is warranted.
+
+**Also missing — G1-ON → G2-OFF weak link** (handled correctly via individual-cell BFS): when any cell of G1 goes ON in the BFS, all cells in the same house lose `d` including all G2 cells, which then triggers `checkGroupOff` for G2 normally. ✅
+
 File: `src/solver/TablingSolver.ts`, `_expandTablesWithGroups` → `checkGroupOff`.
+
+---
+
+### H22 — TablingSolver `_expandTablesWithGroups`: missing singleton-OFF → group-ON implication
+
+Java's `fillTablesWithGroupNodes` pre-computes the **reverse link** for every singleton/group pair in a house:
+
+```java
+// When singleton S and group G are the only d-candidates in a house:
+offTable[S * 10 + gn.cand].addEntry(G_ON);  // S-OFF → G-ON
+```
+
+This means: when S (a non-group single candidate) goes OFF in a chain, and S + G exhaust all `d`-candidates in its house, the group G is forced ON — `d` must be in one of G's cells. Java then propagates G-ON → delete `d` from all G-buddy cells.
+
+TS's `_expandTablesWithGroups` only activates `checkGroupOff` when a cell that IS A MEMBER of the group goes OFF:
+
+```ts
+for (const g of groupsByDigit[d2]) {
+    if (g.cells.includes(c2)) checkGroupOff(g, dest, queue);
+}
+```
+
+When singleton S goes OFF in the BFS (S is NOT a group cell), `g.cells.includes(S)` is always false, so no group-level implication fires. The chain S-OFF → G-ON → G-buddy deletions is entirely absent from TS.
+
+**Impact:** Chains of the form *[... → S is deleted → G is forced into its house → G-buddy cell loses d → ...]* are not generated by TS. This affects GROUPED_NICE_LOOP steps with this specific pattern. Java's GROUPED family is disabled by default (H3).
+
+**Fix:** When processing a non-group cell deletion `(c2, d2)` in the BFS queue, check each house of `c2`. If all remaining `d2`-candidates in that house (excluding `c2`) are exactly the cells of some group G (no singletons), fire G-ON by deleting `d2` from G's buddy set:
+
+```ts
+// inside the BFS loop, after addDel(c2, d2) in _expandTablesWithGroups:
+// Check if c2's elimination makes a group the sole remaining d-source in any house
+for (const hIdx of CELL_HOUSES[c2]) {
+  for (const g of groupsByDigit[d2]) {
+    const hCells = HOUSE_CELLS[hIdx] as number[];
+    if (!g.cells.some(c => hCells.includes(c))) continue;          // G not in this house
+    const remaining = hCells.filter(
+      c => !g.cells.includes(c) && s.values[c] === 0 && s.isCandidate(c, d2) && !dest.offSets[d2].has(c)
+    );
+    if (remaining.length === 0) {
+      // All non-G candidates in house are gone → G is forced ON
+      // Delete d2 from all cells that see the entire group G
+      const buddies = g.cells.reduce(
+        (acc, gc) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
+        HOUSE_CELLS[hIdx].filter(c => !g.cells.includes(c)) as number[]
+      );
+      for (const bCell of buddies) {
+        if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d2)) continue;
+        if (dest.addDel(bCell, d2)) {
+          this._groupImplicationFired = true;
+          queue.push({ cell: bCell, d: d2, isOn: false });
+          for (const gk of groupsByDigit[d2]) {
+            if (gk.cells.includes(bCell)) checkGroupOff(gk, dest, queue);
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+File: `src/solver/TablingSolver.ts`, `_expandTablesWithGroups` BFS inner loop.
 
 ---
 
