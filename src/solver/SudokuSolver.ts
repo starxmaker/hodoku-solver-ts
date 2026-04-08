@@ -57,17 +57,15 @@ const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
   SolutionType.X_WING,
   SolutionType.SWORDFISH,
   SolutionType.JELLYFISH,
-  SolutionType.SQUIRMBAG,
-  SolutionType.WHALE,
-  SolutionType.LEVIATHAN,
+  // SQUIRMBAG, WHALE, LEVIATHAN — Java enabled=false by default (H3)
   SolutionType.REMOTE_PAIR,
   SolutionType.BUG_PLUS_1,             // Java index 2900
   SolutionType.SKYSCRAPER,
   SolutionType.TWO_STRING_KITE,
-  SolutionType.DUAL_TWO_STRING_KITE,
+  // DUAL_TWO_STRING_KITE — Java never adds this to solve order (H2)
   SolutionType.TURBOT_FISH,
   SolutionType.EMPTY_RECTANGLE,
-  SolutionType.DUAL_EMPTY_RECTANGLE,
+  // DUAL_EMPTY_RECTANGLE — Java never adds this to solve order (H2)
   SolutionType.W_WING,
   SolutionType.XY_WING,
   SolutionType.XYZ_WING,
@@ -86,12 +84,7 @@ const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
   SolutionType.SASHIMI_SWORDFISH,
   SolutionType.FINNED_JELLYFISH,
   SolutionType.SASHIMI_JELLYFISH,
-  SolutionType.FINNED_SQUIRMBAG,
-  SolutionType.SASHIMI_SQUIRMBAG,
-  SolutionType.FINNED_WHALE,
-  SolutionType.SASHIMI_WHALE,
-  SolutionType.FINNED_LEVIATHAN,
-  SolutionType.SASHIMI_LEVIATHAN,
+  // FINNED/SASHIMI SQUIRMBAG, WHALE, LEVIATHAN — Java enabled=false by default (H3)
   // Misc, coloring, chains — Java 5300–5650 (cheaper than Franken/Mutant fish)
   SolutionType.SUE_DE_COQ,             // 5300
   SolutionType.SIMPLE_COLORS,          // 5330
@@ -104,40 +97,20 @@ const TECHNIQUE_ORDER: (typeof SolutionType)[keyof typeof SolutionType][] = [
   SolutionType.ALS_XZ,
   SolutionType.ALS_XY_WING,
   SolutionType.ALS_XY_CHAIN,
-  SolutionType.DEATH_BLOSSOM,
+  // DEATH_BLOSSOM — Java enabled=false by default (H3)
   // Franken fish — Java 6100–7200
   SolutionType.FRANKEN_X_WING,
   SolutionType.FRANKEN_SWORDFISH,
-  SolutionType.FRANKEN_JELLYFISH,
-  SolutionType.FRANKEN_SQUIRMBAG,
-  SolutionType.FRANKEN_WHALE,
-  SolutionType.FRANKEN_LEVIATHAN,
+  // FRANKEN_JELLYFISH and larger — Java enabled=false by default (H3)
   SolutionType.FINNED_FRANKEN_X_WING,
   SolutionType.FINNED_FRANKEN_SWORDFISH,
-  SolutionType.FINNED_FRANKEN_JELLYFISH,
-  SolutionType.FINNED_FRANKEN_SQUIRMBAG,
-  SolutionType.FINNED_FRANKEN_WHALE,
-  SolutionType.FINNED_FRANKEN_LEVIATHAN,
-  // Mutant fish — Java 7300–8400
-  SolutionType.MUTANT_X_WING,
-  SolutionType.MUTANT_SWORDFISH,
-  SolutionType.MUTANT_JELLYFISH,
-  SolutionType.MUTANT_SQUIRMBAG,
-  SolutionType.MUTANT_WHALE,
-  SolutionType.MUTANT_LEVIATHAN,
-  SolutionType.FINNED_MUTANT_X_WING,
-  SolutionType.FINNED_MUTANT_SWORDFISH,
-  SolutionType.FINNED_MUTANT_JELLYFISH,
-  SolutionType.FINNED_MUTANT_SQUIRMBAG,
-  SolutionType.FINNED_MUTANT_WHALE,
-  SolutionType.FINNED_MUTANT_LEVIATHAN,
-  // Kraken fish — Java 8450
-  SolutionType.KRAKEN_FISH,
+  // FINNED_FRANKEN_JELLYFISH and larger — Java enabled=false by default (H3)
+  // MUTANT fish — all Java enabled=false by default (H3)
+  // KRAKEN_FISH — Java enabled=false by default (H3)
   // Last resort — Java 8500–8900
   SolutionType.FORCING_CHAIN,
   SolutionType.FORCING_NET,
-  SolutionType.TEMPLATE_SET,
-  SolutionType.TEMPLATE_DEL,
+  // TEMPLATE_SET, TEMPLATE_DEL — Java enabled=false by default (H3)
   SolutionType.BRUTE_FORCE,
   SolutionType.GIVE_UP,
 ];
@@ -227,9 +200,9 @@ const STEP_BASE_SCORES: Partial<Record<string, number>> = {
   [SolutionType.FINNED_MUTANT_WHALE]:     470,
   [SolutionType.FINNED_MUTANT_LEVIATHAN]: 470,
   // Kraken fish scores
-  [SolutionType.KRAKEN_FISH]:             470,
-  [SolutionType.KRAKEN_FISH_TYPE_1]:      470,
-  [SolutionType.KRAKEN_FISH_TYPE_2]:      470,
+  [SolutionType.KRAKEN_FISH]:             500,
+  [SolutionType.KRAKEN_FISH_TYPE_1]:      500,
+  [SolutionType.KRAKEN_FISH_TYPE_2]:      500,
   [SolutionType.SUE_DE_COQ]:              250,
   [SolutionType.SIMPLE_COLORS]:           150,
   [SolutionType.SIMPLE_COLORS_TRAP]:      150,
@@ -257,9 +230,9 @@ const STEP_BASE_SCORES: Partial<Record<string, number>> = {
   [SolutionType.FORCING_CHAIN_VERITY]:    500,
   [SolutionType.FORCING_NET_CONTRADICTION]: 700,
   [SolutionType.FORCING_NET_VERITY]:      700,
-  [SolutionType.TEMPLATE_SET]:            320,
-  [SolutionType.TEMPLATE_DEL]:            320,
-  [SolutionType.BRUTE_FORCE]:             800,
+  [SolutionType.TEMPLATE_SET]:            10000,
+  [SolutionType.TEMPLATE_DEL]:            10000,
+  [SolutionType.BRUTE_FORCE]:             10000,
 };
 
 /** Ordered difficulty levels with their cumulative score ceilings. */

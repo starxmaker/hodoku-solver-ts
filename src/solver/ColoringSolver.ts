@@ -129,7 +129,9 @@ export class ColoringSolver extends AbstractSolver {
         }
 
         // Rule 2: Color Trap — uncolored cell sees BOTH colors.
+        // H23: collect ALL qualifying cells before returning (match Java batch behaviour).
         const allColored = new Set([...c0, ...c1]);
+        const trapDels: Candidate[] = [];
         for (let cell = 0; cell < 81; cell++) {
           if (values[cell] !== 0) continue;
           if (!(candidates[cell] & (1 << d))) continue;
@@ -137,14 +139,11 @@ export class ColoringSolver extends AbstractSolver {
           const buddies = BUDDIES[cell];
           const seesC0 = c0.some(c => buddies.includes(c));
           const seesC1 = c1.some(c => buddies.includes(c));
-          if (seesC0 && seesC1) {
-            if (requestedType === SolutionType.SIMPLE_COLORS_WRAP) continue;
-            return {
-              type: SolutionType.SIMPLE_COLORS_TRAP,
-              placements: [],
-              candidatesToDelete: [{ index: cell, value: d as Digit }],
-            };
-          }
+          if (seesC0 && seesC1) trapDels.push({ index: cell, value: d as Digit });
+        }
+        if (trapDels.length > 0) {
+          if (requestedType === SolutionType.SIMPLE_COLORS_WRAP) continue;
+          return { type: SolutionType.SIMPLE_COLORS_TRAP, placements: [], candidatesToDelete: trapDels };
         }
       }
     }
@@ -160,21 +159,21 @@ export class ColoringSolver extends AbstractSolver {
     for (let d = 1; d <= 9; d++) {
       const components = this._buildComponents(d);
 
+      // H15 Bug B: use ordered pairs (i,j) with i≠j so component[j] halves can also be eliminated.
       for (let i = 0; i < components.length; i++) {
-        for (let j = i + 1; j < components.length; j++) {
+        for (let j = 0; j < components.length; j++) {
+          if (j === i) continue;
           const [a0, a1] = components[i];
           const [b0, b1] = components[j];
 
           // Try all 4 orientation combos of the two components
           for (const [colorA, oppA] of [[a0, a1], [a1, a0]] as [number[], number[]][]) {
             for (const [colorB, oppB] of [[b0, b1], [b1, b0]] as [number[], number[]][]) {
-              // Type 2: some cell of colorA sees BOTH colorB and oppB —
-              // means colorA can't be true, eliminate all d from colorA
-              const typeTwo = colorA.some(cA =>
-                colorB.some(cB => BUDDIES[cA].includes(cB)) &&
-                oppB.some(cOpp => BUDDIES[cA].includes(cOpp))
-              );
-              if (typeTwo) {
+              // H15 Bug A: Type 2 check — DIFFERENT cells of colorA may each see one half.
+              // Java only requires the combined set to see colorB AND oppB.
+              const seesAnyColorB = colorA.some(cA => colorB.some(cB => BUDDIES[cA].includes(cB)));
+              const seesAnyOppB   = colorA.some(cA => oppB.some(cOpp => BUDDIES[cA].includes(cOpp)));
+              if (seesAnyColorB && seesAnyOppB) {
                 const del: Candidate[] = colorA
                   .filter(c => values[c] === 0 && (candidates[c] & (1 << d)))
                   .map(c => ({ index: c, value: d as Digit }));

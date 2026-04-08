@@ -274,13 +274,12 @@ export class TablingSolver extends AbstractSolver {
     const groups = collectGroupNodes(this.sudoku);
     if (groups.length === 0) return null;
 
+    // H4: Java ALLOW_ALS_IN_TABLING_CHAINS=false by default — no ALS expansion for grouped loops.
     this._groupImplicationFired = false;
     this._fillTables();
     this._expandTablesWithGroups(this._onTable, this._offTable, groups);
-    this._alsImplicationFired = false;
-    this._expandTablesWithAls(this._onTable, this._offTable, collectAlses(this.sudoku));
 
-    if (!this._groupImplicationFired && !this._alsImplicationFired) return null;
+    if (!this._groupImplicationFired) return null;
 
     const step = this._checkNiceLoops(this._onTable)
         ?? this._checkNiceLoops(this._offTable)
@@ -500,16 +499,16 @@ export class TablingSolver extends AbstractSolver {
   }
 
   private _getForcingChain(): SolutionStep | null {
+    // H4: Java ALLOW_ALS_IN_TABLING_CHAINS=false by default — no ALS expansion.
     this._fillTables();
     this._expandTables(this._onTable, this._offTable);
-    this._expandTablesWithAls(this._onTable, this._offTable, collectAlses(this.sudoku));
     return this._checkForcingChains();
   }
 
   private _getForcingNet(): SolutionStep | null {
+    // H4: Java ALLOW_ALS_IN_TABLING_CHAINS=false by default — no ALS expansion.
     this._fillTablesForNet();
     this._expandTables(this._onTable, this._offTable);
-    this._expandTablesWithAls(this._onTable, this._offTable, collectAlses(this.sudoku));
     const step = this._checkForcingChains();
     if (!step) return null;
     if (step.type === SolutionType.FORCING_CHAIN_CONTRADICTION)
@@ -750,7 +749,8 @@ export class TablingSolver extends AbstractSolver {
             dels.push({ index: buddy, value: startCand as Digit });
           }
         }
-        if (dels.length >= 1) return _step(SolutionType.AIC, dels);
+        // H11: Java requires ≥2 common buddies (1-buddy case is already covered by Nice Loops).
+        if (dels.length >= 2) return _step(SolutionType.AIC, dels);
       }
     }
     return null;
@@ -835,6 +835,14 @@ export class TablingSolver extends AbstractSolver {
         if (positions.length === 0) continue;
         if (positions.every(c => entry.offSets[d2].has(c))) return conclude();
       }
+    }
+
+    // Case 6 (H12): some unsolved cell has ALL its candidates eliminated — contradiction.
+    for (let cell = 0; cell < 81; cell++) {
+      if (s.values[cell] !== 0) continue;
+      const cands = s.getCandidates(cell);
+      if (cands.length === 0) continue;
+      if (cands.every(d2 => entry.offSets[d2].has(cell))) return conclude();
     }
 
     return null;

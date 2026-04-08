@@ -244,8 +244,10 @@ export class SingleDigitPatternSolver extends AbstractSolver {
             if (!boxCells.every(c => Sudoku2.row(c) === erRow || Sudoku2.col(c) === erCol)) continue;
             if (!boxCells.some(c => Sudoku2.row(c) !== erRow)) continue;
             if (!boxCells.some(c => Sudoku2.col(c) !== erCol)) continue;
-            if (boxCells.filter(c => Sudoku2.col(c) === erCol).length < 2) continue;
-            if (boxCells.filter(c => Sudoku2.row(c) === erRow).length < 2) continue;
+            // H19: Java requires ≥2 in AT LEAST ONE arm (not both).
+            const rowArmCount = boxCells.filter(c => Sudoku2.row(c) === erRow).length;
+            const colArmCount = boxCells.filter(c => Sudoku2.col(c) === erCol).length;
+            if (rowArmCount < 2 && colArmCount < 2) continue;
 
             // Case A: conjugate pair in a column outside the box column band
             for (let colH = 9; colH < 18; colH++) {

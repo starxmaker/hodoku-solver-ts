@@ -405,6 +405,16 @@ File: `src/solver/SudokuSolver.ts`
 
 ### H8 — TablingSolver `_checkNiceLoops`: missing chain-length filter causes spurious eliminations (critical)
 
+> ⚠️ **Performance warning:** Fixing H8 and H9 together causes a 10–50× test-suite slowdown.
+> Currently, the spurious 1-hop NICE_LOOP "shortcut" accidentally solves puzzles like XY-Wing,
+> Remote Pair, and W-Wing in a single step by incorrectly eliminating candidates.
+> When H8/H9 are fixed those shortcuts disappear, and those puzzles fall through to
+> FORCING_CHAIN / BRUTE_FORCE — which is hundreds of times slower per iteration.
+> The fix IS correct behaviour; it just exposes missing performance optimisations
+> (table caching, BFS integer encoding, GROUPED pre-check).  Do NOT fix H8/H9
+> without also implementing these performance mitigations, or test time jumps
+> from ~30 s to ~10 min.  See previous implementation attempt in git history.
+
 Java's `checkNiceLoop` starts with:
 ```java
 if (entry.getDistance(entryIndex) <= 2) return; // chain too short

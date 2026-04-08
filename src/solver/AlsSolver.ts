@@ -417,10 +417,10 @@ export class AlsSolver extends AbstractSolver {
     const aSet = new Set(startAls.cells);
     if (endAls.cells.some(c => aSet.has(c))) return null;
 
-    // Exclude ALL digits of the first and last RC links.
-    let rcMask = (1 << firstRcD) | (1 << lastRcD);
-    if (firstRcD2 > 0) rcMask |= (1 << firstRcD2);
-    if (lastRcD2  > 0) rcMask |= (1 << lastRcD2);
+    // H13C: Only exclude the ACTIVE RC digits (d1) of the first and last links.
+    // Including partner digit d2 incorrectly blocks valid Z-eliminations when
+    // the partner is not the active RC (Java: actualRC=1 means only d1 excluded).
+    const rcMask = (1 << firstRcD) | (1 << lastRcD);
 
     const commonZMask = startAls.candMask & endAls.candMask & ~rcMask;
     if (!commonZMask) return null;

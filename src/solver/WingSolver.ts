@@ -222,7 +222,9 @@ export class WingSolver extends AbstractSolver {
             // Eliminate elim from cells seeing both ci and cj
             const del: Candidate[] = [];
             for (const cell of BUDDIES[ci]) {
-              if (cell === cj || cell === linkA || cell === linkB) continue;
+              // H20: bridge cells (linkA/linkB) are NOT excluded — if they see both ci and cj
+              // they are valid elimination targets (Java does not exclude them either).
+              if (cell === cj) continue;
               if (values[cell] !== 0) continue;
               if (!(candidates[cell] & (1 << elim))) continue;
               if (!BUDDIES[cj].includes(cell)) continue;
