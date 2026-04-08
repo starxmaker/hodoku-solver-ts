@@ -213,6 +213,11 @@ The following areas were audited and found equivalent to Java:
 | `AlsSolver._findAlsXYWing` — hub identification, overlap check (A/B only), RC exclusion mask, elimination generation all match Java | ✅ |
 | `TablingSolver._checkAllChainsForCells` / `_checkAllChainsForHouses` — intersection verity logic matches Java's `checkEntryList` for cells and `checkAllChainsForHouse(houseSets)` | ✅ |
 | `AlsSolver._collectRCs` — forward-only pair iteration (`i < j`) with max 2 RCs per pair matches Java's `rcOnlyForward=true` collection | ✅ |
+| `BruteForceSolver.getStep` — picks middle unsolved cell and reads pre-computed solution; matches Java's `getBruteForce()` logic | ✅ |
+| `SudokuSolver.solve()` loop — iterates `TECHNIQUE_ORDER` and calls `doStep` on first hit; structurally matches Java's `getHint` loop (H3/H7 are separate documented bugs) | ✅ |
+| `TablingSolver.setSudoku` — properly resets `_krakenFilled` and all table state on each new puzzle; matches Java's `AbstractSolver` chain | ✅ |
+| `Sudoku2._countSolns` / `getSolution` — MRV+backtracker is functionally equivalent to Java's Dancing Links for uniqueness detection and solution retrieval | ✅ |
+| `TablingSolver._checkTwoChains` premise-cell exclusion — Java removes the premise cell from the onSets/offSets intersection to avoid double-reporting what `_checkOneChain` already catches; TS does not remove it. In practice, any such cell would already be caught by `_checkOneChain` before `_checkTwoChains` runs, so this causes no incorrect results — just a possible duplicate report in a degenerate edge case | ✅ (minor; no action needed) |
 
 ---
 
@@ -536,6 +541,33 @@ TS `_findKrakenFish` iterates only `for (const rowBase of [true, false])` with l
 **Fix:** Add a Franken Kraken search path that uses boxes as base or cover units, mirroring `_findFrankenFish` but with Kraken forcing-chain analysis.
 
 File: `src/solver/FishSolver.ts`, `_findKrakenFish`.
+
+---
+
+### H15 — ColoringSolver: MULTI_COLORS_2 detection is too restrictive (two interacting bugs)
+
+Java's `findMultiColorStepsForCandidate` uses ordered pairs `(i, j)` AND `(j, i)` in its outer loop and relies on `checkMultiColor1(set, s21, s22)` which requires "any cell in set sees s21" AND "any cell (possibly different) in set sees s22."
+
+TS `_findMultiColors` has two independent bugs for MULTI_COLORS_2:
+
+**Bug A — single-cell constraint too strict:**
+```ts
+// TS (too strict):
+const typeTwo = colorA.some(cA =>
+  colorB.some(cB => BUDDIES[cA].includes(cB)) &&
+  oppB.some(cOpp => BUDDIES[cA].includes(cOpp))
+);
+```
+TS requires one **single cell** of `colorA` to see BOTH `colorB` AND `oppB`. Java's `checkMultiColor1` only accumulates `seeS21` and `seeS22` across all cells in the set — the two halves can be seen by **different** cells. TS will miss any Type 2 case where no single cell of colorA sees both halves of the other pair, even though the combined set does.
+
+**Bug B — component j half never eliminated:**
+TS outer loop is `j > i` (unordered pairs), with `colorA` cycling only over `{a0, a1}` (halves of component[i]). The elimination target is always `colorA`, so only halves of component[i] can be eliminated. Java processes both ordered pairs `(i,j)` and `(j,i)`, so when processing `(j, i)` it also checks whether halves of component[j] see both halves of component[i] — and eliminates from component[j]. TS never puts component[j]'s halves in the `colorA` role, so it misses these eliminations entirely.
+
+**Impact:** TS may fail to find valid MULTI_COLORS_2 eliminations, leading to weaker solving in multi-colors-heavy puzzles. MULTI_COLORS is disabled in Java's default solve mode (H3), so this only affects users who explicitly enable it.
+
+**Fix:** Change Type 2 check to accumulate `seeHalf1` and `seeHalf2` across all cells (like Java's `checkMultiColor1`), and change the outer loop to iterate all ordered pairs `(i, j)` with `i ≠ j` (or equivalently, after `j > i` loop also check component[j]→component[i]).
+
+File: `src/solver/ColoringSolver.ts`, `_findMultiColors`.
 
 ---
 
