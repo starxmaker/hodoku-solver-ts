@@ -90,23 +90,28 @@ export class SimpleSolver extends AbstractSolver {
   // ------------------------------------------------------------------ //
 
   private _findFullHouse(): SolutionStep | null {
-    const HOUSES = Sudoku2.HOUSES;
-    for (let h = 0; h < 27; h++) {
-      let count = 0;
-      let cell  = -1;
-      for (const idx of HOUSES[h]) {
-        if (this.sudoku.values[idx] === 0) {
-          count++;
-          cell = idx;
-          if (count > 1) break;
+    // Mirrors Java SimpleSolver.findFullHouse(): iterate the naked-singles queue
+    // (non-destructively, via getFirstIndex/getNextIndex) and for each valid
+    // naked single check whether any of its constraints has free[constr][j] == 0
+    // for ALL digits j ≠ value.  If so, the cell is the last empty cell in that
+    // constraint — a Full House.
+    const { _nsIdx, _nsVal, _nsGet, _nsPut } = this.sudoku;
+    for (let qi = _nsGet; qi < _nsPut; qi++) {
+      const idx = _nsIdx[qi];
+      const val = _nsVal[qi];
+      if (this.sudoku.values[idx] !== 0) continue; // stale
+      for (const constr of Sudoku2.CONSTRAINTS[idx]) {
+        let valid = true;
+        for (let j = 1; j <= 9; j++) {
+          if (j !== val && this.sudoku.getFree(constr, j) !== 0) {
+            valid = false;
+            break;
+          }
         }
-      }
-      if (count === 1) {
-        const cands = this.sudoku.getCandidates(cell);
-        if (cands.length === 1) {
+        if (valid) {
           return {
             type: SolutionType.FULL_HOUSE,
-            placements: [{ index: cell, value: cands[0] as Digit }],
+            placements: [{ index: idx, value: val as Digit }],
             candidatesToDelete: [],
           };
         }
@@ -120,17 +125,15 @@ export class SimpleSolver extends AbstractSolver {
   // ------------------------------------------------------------------ //
 
   private _findNakedSingle(): SolutionStep | null {
-    for (let i = 0; i < 81; i++) {
-      if (this.sudoku.values[i] === 0 && this.sudoku.candidateCount(i) === 1) {
-        const d = this.sudoku.getCandidates(i)[0] as Digit;
-        return {
-          type: SolutionType.NAKED_SINGLE,
-          placements: [{ index: i, value: d }],
-          candidatesToDelete: [],
-        };
-      }
-    }
-    return null;
+    // Mirrors Java SimpleSolver.findNakedSingle(): consume from nsQueue via
+    // getSingle() (destructive FIFO read), skipping stale entries.
+    const s = this.sudoku.consumeNakedSingle();
+    if (!s) return null;
+    return {
+      type: SolutionType.NAKED_SINGLE,
+      placements: [{ index: s.index, value: s.value as Digit }],
+      candidatesToDelete: [],
+    };
   }
 
   // ------------------------------------------------------------------ //
@@ -138,24 +141,15 @@ export class SimpleSolver extends AbstractSolver {
   // ------------------------------------------------------------------ //
 
   private _findHiddenSingle(): SolutionStep | null {
-    const free  = this._computeFree();
-    const HOUSES = Sudoku2.HOUSES;
-    for (let h = 0; h < 27; h++) {
-      for (let d = 1; d <= 9; d++) {
-        if (free[h][d] === 1) {
-          for (const idx of HOUSES[h]) {
-            if (this.sudoku.values[idx] === 0 && this.sudoku.isCandidate(idx, d)) {
-              return {
-                type: SolutionType.HIDDEN_SINGLE,
-                placements: [{ index: idx, value: d as Digit }],
-                candidatesToDelete: [],
-              };
-            }
-          }
-        }
-      }
-    }
-    return null;
+    // Mirrors Java SimpleSolver.findHiddenSingle(): consume from hsQueue via
+    // getSingle() (destructive FIFO read), skipping stale / invalidated entries.
+    const s = this.sudoku.consumeHiddenSingle();
+    if (!s) return null;
+    return {
+      type: SolutionType.HIDDEN_SINGLE,
+      placements: [{ index: s.index, value: s.value as Digit }],
+      candidatesToDelete: [],
+    };
   }
 
   // ------------------------------------------------------------------ //

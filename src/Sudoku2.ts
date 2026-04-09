@@ -95,6 +95,22 @@ const BUDDIES: readonly (readonly number[])[] = (() => {
 })();
 
 /**
+ * Constraint indices for each cell: [row_constraint, col_constraint, box_constraint].
+ * Mirrors Java Sudoku2.CONSTRAINTS[].
+ * Rows = 0–8, Cols = 9–17, Boxes = 18–26.
+ */
+const CONSTRAINTS: readonly (readonly number[])[] = (() => {
+  const c: number[][] = [];
+  for (let i = 0; i < LENGTH; i++) {
+    const r = (i / 9) | 0;
+    const col = i % 9;
+    const b = ((r / 3) | 0) * 3 + ((col / 3) | 0);
+    c.push(Object.freeze([r, 9 + col, 18 + b]) as unknown as number[]);
+  }
+  return Object.freeze(c);
+})();
+
+/**
  * Core grid state container — equivalent to the Java {@code Sudoku2} class.
  *
  * Cells are indexed in row-major order 0–80.
@@ -113,6 +129,23 @@ export class Sudoku2 {
 
   /** How many cells are still unsolved. */
   private _unsolvedCount = LENGTH;
+
+  // ── Singles queues (mirrors Java Sudoku2 nsQueue / hsQueue) ──────────────
+  // free[constraint][digit] = number of unsolved cells in that constraint that
+  // still have digit as a candidate.  Mirrors Java Sudoku2.free[][].
+  readonly _free: number[][] = Array.from({ length: 27 }, () => new Array(10).fill(0));
+
+  // Naked-singles queue — FIFO of (cellIndex, digit) pairs.
+  readonly _nsIdx: number[] = new Array(500).fill(0);
+  readonly _nsVal: number[] = new Array(500).fill(0);
+  _nsGet = 0;
+  _nsPut = 0;
+
+  // Hidden-singles queue — FIFO of (cellIndex, digit) pairs.
+  readonly _hsIdx: number[] = new Array(500).fill(0);
+  readonly _hsVal: number[] = new Array(500).fill(0);
+  _hsGet = 0;
+  _hsPut = 0;
 
   /** Pre-computed solution (populated lazily by getSolution / setSolution). */
   private _solution: number[] = new Array(LENGTH).fill(0);
@@ -136,6 +169,8 @@ export class Sudoku2 {
 
   static readonly HOUSES = HOUSES;
   static readonly BUDDIES = BUDDIES;
+  /** Constraint indices [row, col, box] for each cell (mirrors Java Sudoku2.CONSTRAINTS). */
+  static readonly CONSTRAINTS = CONSTRAINTS;
 
   /** Row of cell index i (0-based). */
   static row(i: number): number { return (i / 9) | 0; }
@@ -163,6 +198,18 @@ export class Sudoku2 {
     this.givens.fill(0);
     this._unsolvedCount = LENGTH;
     this._solutionSet = false;
+
+    // Reset singles queues
+    this._nsGet = this._nsPut = 0;
+    this._hsGet = this._hsPut = 0;
+
+    // Initialize free[constraint][digit] = 9 (all 9 cells unsolved, all candidates valid).
+    // This mirrors Java's initial free[][] state before any givens are placed.
+    for (let c = 0; c < 27; c++) {
+      for (let d = 1; d <= 9; d++) {
+        this._free[c][d] = 9;
+      }
+    }
 
     for (let i = 0; i < LENGTH; i++) {
       const ch = puzzle[i];
@@ -202,7 +249,24 @@ export class Sudoku2 {
 
   /** Remove digit d from the candidate mask of cell i. */
   removeCandidate(i: number, d: number): void {
-    this.candidates[i] &= ~(1 << d);
+    if (this.values[i] !== 0) return; // already placed
+    const bit = 1 << d;
+    if (!(this.candidates[i] & bit)) return; // d not a candidate, nothing to do
+    this.candidates[i] &= ~bit;
+
+    // Update free counts for each constraint of i.
+    for (const constr of CONSTRAINTS[i]) {
+      const newFree = --this._free[constr][d];
+      if (newFree === 1) {
+        this._addHiddenSingle(constr, d);
+      }
+    }
+
+    // If i now has exactly 1 candidate, add it to the naked-singles queue.
+    const remaining = this.candidates[i];
+    if (remaining !== 0 && (remaining & (remaining - 1)) === 0) {
+      this._nsAdd(i, 31 - Math.clz32(remaining));
+    }
   }
 
   /** Returns the list of candidate digits (1–9) for cell i. */
@@ -418,12 +482,123 @@ export class Sudoku2 {
 
   private _placeDigit(i: number, d: number): void {
     if (this.values[i] !== 0) return; // already set
+
+    // Save the cell's current candidates before clearing (needed to update free).
+    const oldCands = this.candidates[i];
+
     this.values[i] = d;
     this.candidates[i] = 0; // no longer has candidates
     this._unsolvedCount--;
-    // Remove d from all buddies
+
+    // ── Step 1: Remove d from all buddies ────────────────────────────────────
+    // Mirrors Java setCell() "check the buddies" block — processed FIRST.
+    // Buddies are in ascending cell-index order (BUDDIES[i] is sorted).
     for (const b of BUDDIES[i]) {
+      if (!(this.candidates[b] & (1 << d))) continue; // d not a candidate of b
       this.candidates[b] &= ~(1 << d);
+
+      // Update free counts for digit d in each constraint of buddy b.
+      for (const constr of CONSTRAINTS[b]) {
+        const newFree = --this._free[constr][d];
+        if (newFree === 1) {
+          this._addHiddenSingle(constr, d);
+        }
+      }
+
+      // Check if b is now a naked single.
+      const remaining = this.candidates[b];
+      if (remaining !== 0 && (remaining & (remaining - 1)) === 0) {
+        this._nsAdd(b, 31 - Math.clz32(remaining));
+      }
+    }
+
+    // ── Step 2: Update free counts for ALL old candidates of cell i ───────────
+    // Mirrors Java setCell() "check all candidates from the cell itself" block —
+    // processed SECOND.  Cell i is now solved and no longer contributes to any
+    // constraint's free count for its previous candidates.
+    for (let c = 1; c <= 9; c++) {
+      if (oldCands & (1 << c)) {
+        for (const constr of CONSTRAINTS[i]) {
+          const newFree = --this._free[constr][c];
+          if (newFree === 1 && c !== d) {
+            // A new hidden single appeared for digit c in this constraint.
+            this._addHiddenSingle(constr, c);
+          }
+        }
+      }
     }
   }
+
+  // ── Internal queue helpers ────────────────────────────────────────────────
+
+  private _nsAdd(idx: number, val: number): void {
+    this._nsIdx[this._nsPut] = idx;
+    this._nsVal[this._nsPut++] = val;
+  }
+
+  private _hsAdd(idx: number, val: number): void {
+    this._hsIdx[this._hsPut] = idx;
+    this._hsVal[this._hsPut++] = val;
+  }
+
+  /**
+   * Add the first cell in {@code constr} that has digit {@code d} as a candidate
+   * to the hidden-singles queue.  Mirrors Java {@code Sudoku2.addHiddenSingle()}.
+   */
+  private _addHiddenSingle(constr: number, d: number): void {
+    for (const idx of HOUSES[constr]) {
+      if (this.values[idx] === 0 && (this.candidates[idx] & (1 << d))) {
+        this._hsAdd(idx, d);
+        return;
+      }
+    }
+  }
+
+  // ── Queue consumer APIs (used by SimpleSolver) ────────────────────────────
+
+  /**
+   * Destructively consume the oldest entry from the naked-singles queue and
+   * return the first still-valid one, mirroring Java {@code nsQueue.getSingle()}.
+   * Returns null when the queue is empty.
+   */
+  consumeNakedSingle(): { index: number; value: number } | null {
+    while (this._nsGet < this._nsPut) {
+      const qi = this._nsGet++;
+      if (this._nsGet >= this._nsPut) { this._nsGet = this._nsPut = 0; }
+      const idx = this._nsIdx[qi];
+      const val = this._nsVal[qi];
+      if (this.values[idx] === 0) return { index: idx, value: val };
+    }
+    return null;
+  }
+
+  /**
+   * Destructively consume the oldest entry from the hidden-singles queue and
+   * return the first still-valid one, mirroring Java {@code hsQueue.getSingle()}.
+   * Returns null when the queue is empty.
+   */
+  consumeHiddenSingle(): { index: number; value: number } | null {
+    while (this._hsGet < this._hsPut) {
+      const qi = this._hsGet++;
+      if (this._hsGet >= this._hsPut) { this._hsGet = this._hsPut = 0; }
+      const idx = this._hsIdx[qi];
+      const val = this._hsVal[qi];
+      if (this.values[idx] === 0) {
+        // Verify the hidden single is still valid in some constraint of idx.
+        for (const constr of CONSTRAINTS[idx]) {
+          if (this._free[constr][val] === 1) {
+            return { index: idx, value: val };
+          }
+        }
+      }
+      // Stale entry — skip and continue.
+    }
+    return null;
+  }
+
+  /** Free count accessor — number of unsolved cells in {@code constr} with candidate {@code d}. */
+  getFree(constr: number, d: number): number {
+    return this._free[constr][d];
+  }
 }
+
