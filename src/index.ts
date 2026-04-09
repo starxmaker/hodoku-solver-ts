@@ -19,9 +19,5 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-export { Sudoku2 } from "./Sudoku2";
-export type { SolutionStep } from "./Sudoku2";
-export { SolutionType } from "./SolutionType";
-export type { SolutionType as SolutionTypeValue } from "./SolutionType";
-export type { Candidate, Placement, Grid, CandidateGrid, SudokuState, DifficultyType, SolveRating } from "./types";
+export type { DifficultyType, SolveRating } from "./types";
 export { SudokuSolver } from "./solver/SudokuSolver";

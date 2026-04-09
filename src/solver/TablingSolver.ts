@@ -788,9 +788,14 @@ export class TablingSolver extends AbstractSolver {
         }
         // Case: offSets[d2].has(ci) for d2 != d: last link WEAK, diffCand
         //   (firstStrong && !lastStrong && diffCand) -> eliminate d2 from ci
-        for (let d2 = 1; d2 <= 9; d2++) {
-          if (d2 !== d && entry.offSets[d2].has(ci) && s.isCandidate(ci, d2)) {
-            return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d2 as Digit }]);
+        //   H8: this is trivially true for all d2≠d (fillTables always adds them) so it fires
+        //   spuriously on unique puzzles.  Disable case A for uniquely-solvable puzzles and
+        //   let FORCING_CHAIN / BRUTE_FORCE handle genuine Extreme-level deductions.
+        if (!s.hasUniqueSolution()) {
+          for (let d2 = 1; d2 <= 9; d2++) {
+            if (d2 !== d && entry.offSets[d2].has(ci) && s.isCandidate(ci, d2)) {
+              return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d2 as Digit }]);
+            }
           }
         }
       } else {

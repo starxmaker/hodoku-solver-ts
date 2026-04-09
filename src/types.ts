@@ -117,6 +117,4 @@ export interface SolveRating {
   score: number;
   /** Difficulty band determined from the accumulated score. */
   difficulty: DifficultyType;
-  /** Every step applied during the solve, in order. */
-  steps: import("./Sudoku2").SolutionStep[];
 }

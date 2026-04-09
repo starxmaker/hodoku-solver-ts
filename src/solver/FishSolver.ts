@@ -19,7 +19,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { EntityRef, SolutionStep } from '../Sudoku2';
+import type { SolutionStep } from '../Sudoku2';
 import { Sudoku2 } from '../Sudoku2';
 import { SolutionType } from '../SolutionType';
 import type { Digit } from '../types';
@@ -170,12 +170,6 @@ export class FishSolver extends AbstractSolver {
         if (toDelete.length > 0) {
           return {
             type, placements: [], candidatesToDelete: toDelete,
-            baseEntities: baseLines.map(ln => (rowBase
-              ? { type: 'row' as const, index: ln }
-              : { type: 'col' as const, index: ln })),
-            coverEntities: coverCols.map(ln => (rowBase
-              ? { type: 'col' as const, index: ln }
-              : { type: 'row' as const, index: ln })),
           };
         }
       } else {
@@ -233,13 +227,6 @@ export class FishSolver extends AbstractSolver {
           if (toDelete.length > 0) {
             return {
               type, placements: [], candidatesToDelete: toDelete,
-              fins: finCells.map(c => ({ index: c, value: d as Digit })),
-              baseEntities: baseLines.map(ln => (rowBase
-                ? { type: 'row' as const, index: ln }
-                : { type: 'col' as const, index: ln })),
-              coverEntities: coverCombo.map(ln => (rowBase
-                ? { type: 'col' as const, index: ln }
-                : { type: 'row' as const, index: ln })),
             };
           }
         }
@@ -352,11 +339,6 @@ export class FishSolver extends AbstractSolver {
     const allHouses = Array.from({ length: 27 }, (_, i) => i)
       .filter(h => hCells[h].length >= 1);
 
-    const toEntity = (h: number): EntityRef =>
-      h < 9  ? { type: 'row', index: h } :
-      h < 18 ? { type: 'col', index: h - 9 } :
-               { type: 'box', index: h - 18 };
-
     const doSearch = (bPool: number[]): SolutionStep | null => {
       for (const baseComb of kCombos(bPool, size)) {
         // Franken: at least one cover must be a box.
@@ -392,8 +374,6 @@ export class FishSolver extends AbstractSolver {
               return {
                 type, placements: [],
                 candidatesToDelete: elims.map(c => ({ index: c, value: d as Digit })),
-                baseEntities: baseComb.map(toEntity),
-                coverEntities: coverComb.map(toEntity),
               };
             }
           } else {
@@ -411,9 +391,6 @@ export class FishSolver extends AbstractSolver {
               return {
                 type, placements: [],
                 candidatesToDelete: elims.map(c => ({ index: c, value: d as Digit })),
-                fins: fins.map(c => ({ index: c, value: d as Digit })),
-                baseEntities: baseComb.map(toEntity),
-                coverEntities: coverComb.map(toEntity),
               };
             }
           }
@@ -521,13 +498,6 @@ export class FishSolver extends AbstractSolver {
                     type: retType,
                     placements: [],
                     candidatesToDelete: toElim.map(c => ({ index: c, value: d as Digit })),
-                    fins: finCells.map(c => ({ index: c, value: d as Digit })),
-                    baseEntities: baseLines.map(ln => (rowBase
-                      ? { type: 'row' as const, index: ln }
-                      : { type: 'col' as const, index: ln })),
-                    coverEntities: coverCombo.map(ln => (rowBase
-                      ? { type: 'col' as const, index: ln }
-                      : { type: 'row' as const, index: ln })),
                   };
                 }
               }
@@ -563,13 +533,6 @@ export class FishSolver extends AbstractSolver {
                         type: retType,
                         placements: [],
                         candidatesToDelete: targets.map(c => ({ index: c, value: ec as Digit })),
-                        fins: finCells.map(c => ({ index: c, value: d as Digit })),
-                        baseEntities: baseLines.map(ln => (rowBase
-                          ? { type: 'row' as const, index: ln }
-                          : { type: 'col' as const, index: ln })),
-                        coverEntities: coverCombo.map(ln => (rowBase
-                          ? { type: 'col' as const, index: ln }
-                          : { type: 'row' as const, index: ln })),
                       };
                     }
                   }
@@ -599,11 +562,6 @@ export class FishSolver extends AbstractSolver {
     const HOUSES = Sudoku2.HOUSES;
     const wantType1 = type !== SolutionType.KRAKEN_FISH_TYPE_2;
     const wantType2 = type !== SolutionType.KRAKEN_FISH_TYPE_1;
-
-    const toEntity = (h: number): EntityRef =>
-      h < 9  ? { type: 'row' as const, index: h } :
-      h < 18 ? { type: 'col' as const, index: h - 9 } :
-               { type: 'box' as const, index: h - 18 };
 
     for (let d = 1; d <= 9; d++) {
       // Pre-compute d-candidates for each of the 27 houses.
@@ -668,9 +626,6 @@ export class FishSolver extends AbstractSolver {
                     type: retType,
                     placements: [],
                     candidatesToDelete: toElim.map(c => ({ index: c, value: d as Digit })),
-                    fins: finCells.map(c => ({ index: c, value: d as Digit })),
-                    baseEntities: baseComb.map(toEntity),
-                    coverEntities: coverComb.map(toEntity),
                   };
                 }
               }
@@ -691,9 +646,6 @@ export class FishSolver extends AbstractSolver {
                         type: retType,
                         placements: [],
                         candidatesToDelete: targets.map(c => ({ index: c, value: ec as Digit })),
-                        fins: finCells.map(c => ({ index: c, value: d as Digit })),
-                        baseEntities: baseComb.map(toEntity),
-                        coverEntities: coverComb.map(toEntity),
                       };
                     }
                   }

@@ -417,23 +417,6 @@ export class SudokuSolver extends AbstractSolver {
     for (const s of this._allSolvers) s.setSudoku(sudoku);
   }
 
-  /** Solve the puzzle using techniques in difficulty order. */
-  async solve(): Promise<void> {
-    for (let i = 0; i < 10_000 && !this.sudoku.isSolved; i++) {
-      await new Promise<void>(r => setTimeout(r, 0));
-      let stepped = false;
-      for (const type of TECHNIQUE_ORDER) {
-        const step = this._solverFor(type)?.getStep(type);
-        if (step) {
-          this.doStep(step);
-          stepped = true;
-          break;
-        }
-      }
-      if (!stepped) break;
-    }
-  }
-
   /**
    * Solve the puzzle and compute a HoDoKu difficulty rating.
    *
@@ -448,7 +431,6 @@ export class SudokuSolver extends AbstractSolver {
    */
   async solveWithRating(maxDifficulty: DifficultyType = "EXTREME"): Promise<SolveRating> {
     const maxThreshold = DIFFICULTY_LEVELS.find(d => d.name === maxDifficulty)!.maxScore;
-    const steps: SolutionStep[] = [];
     let score = 0;
     // Minimum difficulty level forced by any technique used (Java per-technique level).
     let minLevelIdx = 0;
@@ -463,7 +445,6 @@ export class SudokuSolver extends AbstractSolver {
           const techLevelIdx = STEP_MIN_DIFFICULTY_IDX[step.type] ?? 0;
           if (techLevelIdx > minLevelIdx) minLevelIdx = techLevelIdx;
           this.doStep(step);
-          steps.push(step);
           if (score > maxThreshold) break outer;
           continue outer;
         }
@@ -478,7 +459,7 @@ export class SudokuSolver extends AbstractSolver {
     }
     const difficulty = DIFFICULTY_LEVELS[levelIdx].name;
 
-    return { solved: this.sudoku.isSolved, score, difficulty, steps };
+    return { solved: this.sudoku.isSolved, score, difficulty };
   }
 
   override getStep(type: typeof SolutionType[keyof typeof SolutionType]): SolutionStep | null {
@@ -503,11 +484,6 @@ export class SudokuSolver extends AbstractSolver {
     const solver = new SudokuSolver();
     solver.setSudoku(sudoku);
     return solver.solveWithRating(maxDifficulty);
-  }
-
-  /** Return the current grid. */
-  getSudoku(): Sudoku2 {
-    return this.sudoku;
   }
 
   private _solverFor(type: typeof SolutionType[keyof typeof SolutionType]): AbstractSolver | null {
