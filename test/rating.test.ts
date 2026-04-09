@@ -24,7 +24,7 @@ function parseCSV(): TestCase[] {
 
 describe("SudokuSolver.rate() -- CSV regression", () => {
   const cases = parseCSV();
-  test.each(cases)(
+  test.concurrent.each(cases)(
     "puzzle $puzzle -> $difficulty / $score",
     async ({ puzzle, difficulty, score }) => {
       const r = await SudokuSolver.rate(puzzle);
