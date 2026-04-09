@@ -80,14 +80,14 @@ export class SingleDigitPatternSolver extends AbstractSolver {
             const c1a = cross(pair1[0]), c1b = cross(pair1[1]);
             const c2a = cross(pair2[0]), c2b = cross(pair2[1]);
 
-            let shared: number, free1: number, free2: number;
-            if (c1a === c2a) { shared = c1a; free1 = pair1[1]; free2 = pair2[1]; }
-            else if (c1a === c2b) { shared = c1a; free1 = pair1[1]; free2 = pair2[0]; }
-            else if (c1b === c2a) { shared = c1b; free1 = pair1[0]; free2 = pair2[1]; }
-            else if (c1b === c2b) { shared = c1b; free1 = pair1[0]; free2 = pair2[0]; }
+            // H20: Java only checks "same-index" pairings (cases 1 and 2), not cross-pairings.
+            // Case 1: pair1[0] and pair2[0] share the crossing line → free ends are [1].
+            // Case 2: pair1[1] and pair2[1] share the crossing line → free ends are [0].
+            let free1: number, free2: number;
+            if (c1a === c2a) { free1 = pair1[1]; free2 = pair2[1]; }
+            else if (c1b === c2b) { free1 = pair1[0]; free2 = pair2[0]; }
             else continue;
 
-            void shared; // shared crossing line not needed beyond this point
             const del = _commonBuddyElims(free1, free2, d, this.sudoku);
             if (del.length) {
               return { type: SolutionType.SKYSCRAPER, placements: [], candidatesToDelete: del };
@@ -187,11 +187,13 @@ export class SingleDigitPatternSolver extends AbstractSolver {
     for (let d = 1; d <= 9; d++) {
       const only2 = this._only2(d);
 
-      // Build list of strong links (pairs)
+      // Build list of strong links (pairs) — add BOTH orientations so we
+      // check all 4 possible inner-endpoint combinations (matching Java DFS).
       const strongLinks: [number, number][] = [];
       for (let h = 0; h < 27; h++) {
         const p = only2[h]; if (!p) continue;
         strongLinks.push([p[0], p[1]]);
+        strongLinks.push([p[1], p[0]]);
       }
 
       // A-B strong link, B-C weak link (share house but not a strong link pair),

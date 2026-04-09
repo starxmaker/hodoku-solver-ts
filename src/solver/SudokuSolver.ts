@@ -429,22 +429,31 @@ export class SudokuSolver extends AbstractSolver {
    *                       returning {@code solved: false}.  Omit (or pass
    *                       {@code "EXTREME"}) to always solve to completion.
    */
-  async solveWithRating(maxDifficulty: DifficultyType = "EXTREME"): Promise<SolveRating> {
+  solveWithRating(maxDifficulty: DifficultyType = "EXTREME"): SolveRating {
     const maxThreshold = DIFFICULTY_LEVELS.find(d => d.name === maxDifficulty)!.maxScore;
     let score = 0;
     // Minimum difficulty level forced by any technique used (Java per-technique level).
     let minLevelIdx = 0;
 
     outer: for (let i = 0; i < 10_000 && !this.sudoku.isSolved; i++) {
-      await new Promise<void>(r => setTimeout(r, 0));
       for (const type of TECHNIQUE_ORDER) {
         const step = this._solverFor(type)?.getStep(type);
         if (step) {
-          score += STEP_BASE_SCORES[step.type] ?? 0;
+          const stepScore = STEP_BASE_SCORES[step.type] ?? 0;
+          score += stepScore;
+          if ((process.env as any)['HODOKU_TRACE']) {
+            const elims = step.candidatesToDelete.map(c => `r${Math.floor(c.index/9)+1}c${c.index%9+1}=${c.value}`).join(',');
+            const places = step.placements.map(c => `r${Math.floor(c.index/9)+1}c${c.index%9+1}=${c.value}`).join(',');
+            const detail = [elims && `ELIM=[${elims}]`, places && `SET=[${places}]`].filter(Boolean).join(' ');
+            process.stdout.write(`${step.type}+${stepScore}=${score}${detail ? ' '+detail : ''}\n`);
+          }
           // Track minimum difficulty imposed by this technique (H7).
           const techLevelIdx = STEP_MIN_DIFFICULTY_IDX[step.type] ?? 0;
           if (techLevelIdx > minLevelIdx) minLevelIdx = techLevelIdx;
           this.doStep(step);
+          // Mirror Java: when GIVE_UP fires, terminate the loop immediately
+          // (Java sets step=null causing while(step!=null) to exit).
+          if (step.type === SolutionType.GIVE_UP) break outer;
           if (score > maxThreshold) break outer;
           continue outer;
         }
@@ -478,7 +487,7 @@ export class SudokuSolver extends AbstractSolver {
    * @param puzzle        81-character string; '0' or '.' for empty cells.
    * @param maxDifficulty Optional cap — same as {@link solveWithRating}.
    */
-  static async rate(puzzle: string, maxDifficulty: DifficultyType = "EXTREME"): Promise<SolveRating> {
+  static rate(puzzle: string, maxDifficulty: DifficultyType = "EXTREME"): SolveRating {
     const sudoku = new Sudoku2();
     sudoku.setSudoku(puzzle);
     const solver = new SudokuSolver();

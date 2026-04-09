@@ -57,18 +57,16 @@ class TableEntry {
   /** Whether this is an ON (true) or OFF (false) table entry. */
   isOn = false;
 
-  // Number of conclusions recorded (0 = no implications at all for this premise)
-  private _count = 0;
   /** cells that become SET to digit d. */
   readonly onSets: Set<number>[] = Array.from({ length: DSIZE }, () => new Set<number>());
   /** cells from which digit d is DELETED. */
   readonly offSets: Set<number>[] = Array.from({ length: DSIZE }, () => new Set<number>());
 
-  /** Whether this premise exists (cell is unsolved and has the candidate). */
-  get populated(): boolean { return this._count > 0; }
+  private _populated = false;
+  get populated(): boolean { return this._populated; }
 
   reset(): void {
-    this._count = 0;
+    this._populated = false;
     for (let d = 0; d < DSIZE; d++) {
       this.onSets[d].clear();
       this.offSets[d].clear();
@@ -78,14 +76,14 @@ class TableEntry {
   addSet(cell: number, d: number): boolean {
     if (this.onSets[d].has(cell)) return false;
     this.onSets[d].add(cell);
-    this._count++;
+    this._populated = true;
     return true;
   }
 
   addDel(cell: number, d: number): boolean {
     if (this.offSets[d].has(cell)) return false;
     this.offSets[d].add(cell);
-    this._count++;
+    this._populated = true;
     return true;
   }
 }
@@ -256,6 +254,7 @@ export class TablingSolver extends AbstractSolver {
   private _getNiceLoop(): SolutionStep | null {
     this._fillTables();
     this._expandTables(this._onTable, this._offTable);
+    // strict=true: mirrors Java's distance > 2 rejection (checkNiceLoop guard).
     return this._checkNiceLoops(this._onTable)
         ?? this._checkNiceLoops(this._offTable)
         ?? this._checkAics(this._offTable);
@@ -336,7 +335,7 @@ export class TablingSolver extends AbstractSolver {
       queue: SnapEntry[],
     ): void => {
       const d = g.digit;
-      // All group cells except the one just added must also be in offSets[d].
+      // All group cells must be in offSets[d].
       if (!g.cells.every(c => dest.offSets[d].has(c))) return;
       // Group is fully OFF — check for solo positions and group-to-group links.
       const solveHouse = (houseIdx: number): void => {
@@ -392,10 +391,12 @@ export class TablingSolver extends AbstractSolver {
         const premiseCi = (ti / 10) | 0;
         const premiseD  = ti % 10;
 
-        const queue: SnapEntry[] = [...snap[ti]];
+        // BFS queue (no dist tracking in grouped tables).
+        const queue2: SnapEntry[] = [...snap[ti]];
+
         let qi = 0;
-        while (qi < queue.length) {
-          const { cell: c, d, isOn } = queue[qi++];
+        while (qi < queue2.length) {
+          const { cell: c, d, isOn } = queue2[qi++];
           if (c === premiseCi && d === premiseD) continue;
 
           const srcTi = c * 10 + d;
@@ -403,13 +404,15 @@ export class TablingSolver extends AbstractSolver {
 
           for (const { cell: c2, d: d2, isOn: isOn2 } of srcSnap) {
             if (isOn2) {
-              if (dest.addSet(c2, d2)) queue.push({ cell: c2, d: d2, isOn: true });
+              if (dest.addSet(c2, d2)) {
+                queue2.push({ cell: c2, d: d2, isOn: true });
+              }
             } else {
               if (dest.addDel(c2, d2)) {
-                queue.push({ cell: c2, d: d2, isOn: false });
+                queue2.push({ cell: c2, d: d2, isOn: false });
                 // Group-OFF check: c2 going OFF may complete a group.
                 for (const g of groupsByDigit[d2]) {
-                  if (g.cells.includes(c2)) checkGroupOff(g, dest, queue);
+                  if (g.cells.includes(c2)) checkGroupOff(g, dest, queue2);
                 }
                 // H22: Singleton-OFF → Group-ON: if c2 is not a group member,
                 // its elimination may force a group in one of c2's houses.
@@ -435,9 +438,9 @@ export class TablingSolver extends AbstractSolver {
                           if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d2) || dest.offSets[d2].has(bCell)) continue;
                           if (dest.addDel(bCell, d2)) {
                             this._groupImplicationFired = true;
-                            queue.push({ cell: bCell, d: d2, isOn: false });
+                            queue2.push({ cell: bCell, d: d2, isOn: false });
                             for (const gk of groupsByDigit[d2]) {
-                              if (gk.cells.includes(bCell)) checkGroupOff(gk, dest, queue);
+                              if (gk.cells.includes(bCell)) checkGroupOff(gk, dest, queue2);
                             }
                           }
                         }
@@ -719,8 +722,8 @@ export class TablingSolver extends AbstractSolver {
   // ---------------------------------------------------------------------------
 
   private _expandTables(onTable: TableEntry[], offTable: TableEntry[]): void {
-    // Snapshot direct implications before any expansion so BFS sources are
-    // never the live (partially-expanded) tables — prevents spurious loops.
+    // Snapshot direct implications before expansion so BFS sources are the
+    // initial state only — prevents pulling in transitively-expanded data.
     type SnapEntry = { cell: number; d: number; isOn: boolean };
     const onSnap:  SnapEntry[][] = Array.from({ length: TABLE_SIZE }, () => []);
     const offSnap: SnapEntry[][] = Array.from({ length: TABLE_SIZE }, () => []);
@@ -744,20 +747,25 @@ export class TablingSolver extends AbstractSolver {
         const premiseCi = (ti / 10) | 0;
         const premiseD  = ti % 10;
 
-        const queue: SnapEntry[] = [...snap[ti]];
+        // BFS queue: entries from the initial fill state.
+        type QEntry = { cell: number; d: number; isOn: boolean };
+        const queue: QEntry[] = [...snap[ti]];
+
         let qi = 0;
         while (qi < queue.length) {
           const { cell: c, d, isOn } = queue[qi++];
           if (c === premiseCi && d === premiseD) continue;
 
-          const srcTi = c * 10 + d;
-          const srcSnap = isOn ? onSnap[srcTi] : offSnap[srcTi];
-
+          const srcSnap = isOn ? onSnap[c * 10 + d] : offSnap[c * 10 + d];
           for (const { cell: c2, d: d2, isOn: isOn2 } of srcSnap) {
             if (isOn2) {
-              if (dest.addSet(c2, d2)) queue.push({ cell: c2, d: d2, isOn: true });
+              if (dest.addSet(c2, d2)) {
+                queue.push({ cell: c2, d: d2, isOn: true });
+              }
             } else {
-              if (dest.addDel(c2, d2)) queue.push({ cell: c2, d: d2, isOn: false });
+              if (dest.addDel(c2, d2)) {
+                queue.push({ cell: c2, d: d2, isOn: false });
+              }
             }
           }
         }
@@ -779,7 +787,7 @@ export class TablingSolver extends AbstractSolver {
       if (isOnTables) {
         // ON premise (STRONG start): chain derived something back to start cell ci
         // Case: onSets[d].has(ci) = last link STRONG, sameCand: Discontinuous, d must be placed
-        //   (firstStrong && lastStrong && sameCand) -> eliminate all others from ci
+        //   -> eliminate all other candidates from ci
         if (entry.onSets[d].has(ci)) {
           const dels: Candidate[] = s.getCandidates(ci)
             .filter(d2 => d2 !== d)
@@ -787,10 +795,8 @@ export class TablingSolver extends AbstractSolver {
           if (dels.length > 0) return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, dels);
         }
         // Case: offSets[d2].has(ci) for d2 != d: last link WEAK, diffCand
-        //   (firstStrong && !lastStrong && diffCand) -> eliminate d2 from ci
-        //   H8: this is trivially true for all d2≠d (fillTables always adds them) so it fires
-        //   spuriously on unique puzzles.  Disable case A for uniquely-solvable puzzles and
-        //   let FORCING_CHAIN / BRUTE_FORCE handle genuine Extreme-level deductions.
+        //   H8: trivially true for all d2≠d (fillTables always adds them) so fires
+        //   spuriously on unique puzzles. Disable for uniquely-solvable puzzles.
         if (!s.hasUniqueSolution()) {
           for (let d2 = 1; d2 <= 9; d2++) {
             if (d2 !== d && entry.offSets[d2].has(ci) && s.isCandidate(ci, d2)) {
@@ -801,12 +807,12 @@ export class TablingSolver extends AbstractSolver {
       } else {
         // OFF premise (WEAK start): chain derived something back to start cell ci
         // Case: offSets[d].has(ci) = last link WEAK, sameCand: Discontinuous
-        //   (!firstStrong && !lastStrong && sameCand) -> eliminate d from ci
+        //   -> eliminate d from ci
         if (entry.offSets[d].has(ci) && s.isCandidate(ci, d)) {
           return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]);
         }
         // Case: onSets[d2].has(ci) for d2 != d: last link STRONG, diffCand
-        //   (!firstStrong && lastStrong && diffCand) -> eliminate d (the weak/start candidate)
+        //   -> eliminate d (the weak/start candidate)
         for (let d2 = 1; d2 <= 9; d2++) {
           if (d2 !== d && entry.onSets[d2].has(ci) && s.isCandidate(ci, d)) {
             return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]);

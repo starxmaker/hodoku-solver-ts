@@ -26,8 +26,8 @@ describe("SudokuSolver.rate() -- CSV regression", () => {
   const cases = parseCSV();
   test.concurrent.each(cases)(
     "puzzle $puzzle -> $difficulty / $score",
-    async ({ puzzle, difficulty, score }) => {
-      const r = await SudokuSolver.rate(puzzle);
+    ({ puzzle, difficulty, score }) => {
+      const r = SudokuSolver.rate(puzzle);
       expect(r.solved).toBe(true);
       expect(r.difficulty).toBe(difficulty);
       expect(r.score).toBe(score);
