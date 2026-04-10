@@ -959,18 +959,16 @@ export class TablingSolver extends AbstractSolver {
     backward.reverse();
     if (backward.length < 4) return false; // chain too short
 
-    // Check first link stays in cell
-    if (backward[0] === backward[1]) return false;
+    // Note: first-link-stays-in-cell check only applies to Nice Loops, NOT AICs
 
-    // Java AIC lasso detection: walk forward, add cells to lasso set with 1-step delay
-    // For AICs, the first cell IS added to the lasso set (unlike nice loops)
+    // AIC lasso detection: walk forward, add cells to lasso set with 1-step delay.
+    // Skip consecutive same-cell entries (within-cell strong links).
     const lassoSet = new Set<number>();
     let lastCell = -1;
     for (let i = 0; i < backward.length; i++) {
       const cell = backward[i];
-      if (lassoSet.has(cell)) return false; // lasso detected
-      if (lastCell !== -1) {
-        // For AICs: always add (no firstCell exemption)
+      if (lassoSet.has(cell)) return false;
+      if (lastCell !== -1 && lastCell !== cell) {
         lassoSet.add(lastCell);
       }
       lastCell = cell;
