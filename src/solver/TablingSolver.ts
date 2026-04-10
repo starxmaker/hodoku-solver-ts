@@ -279,9 +279,33 @@ export class TablingSolver extends AbstractSolver {
   private _getNiceLoop(): SolutionStep | null {
     this._fillTables();
     this._expandTables(this._onTable, this._offTable);
-    return this._checkNiceLoops(this._onTable)
-        ?? this._checkNiceLoops(this._offTable)
-        ?? this._checkAics(this._offTable);
+    const candidates: _StepCandidate[] = [];
+    this._collectNiceLoops(this._onTable, false, candidates);
+    this._collectNiceLoops(this._offTable, false, candidates);
+    this._collectAics(this._offTable, candidates);
+    if (candidates.length === 0) return null;
+    candidates.sort(_compareSteps);
+    if (process.env.HODOKU_DEBUG_NL) {
+      console.log(`  NL candidates (${candidates.length}):`);
+      for (let i = 0; i < candidates.length; i++) {
+        const c = candidates[i];
+        const dels = c.step.candidatesToDelete.map(d => `r${Math.floor(d.index/9)+1}c${d.index%9+1}=${d.value}`).join(',');
+        const hasCell13 = c.step.candidatesToDelete.some(d => d.index === 13);
+        if (i < 10 || hasCell13) {
+          console.log(`    [${i}] ${c.step.type} dist=${c.dist} dels=[${dels}]${hasCell13?' **CELL13**':''}`);
+        }
+      }
+      // Debug offTable[131] = cell 13, d=1 (Java Case 2: keeps cand 1, eliminates others)
+      const off131 = this._offTable[131];
+      console.log(`  offTable[131] populated=${off131.populated}`);
+      if (off131.populated) {
+        for (let d = 1; d <= 9; d++) {
+          if (off131.onSets[d].size > 0) console.log(`    onSets[${d}]=[${[...off131.onSets[d]].map(c => `r${Math.floor(c/9)+1}c${c%9+1}`).join(',')}]`);
+        }
+        console.log(`    onSets[1].has(13)=${off131.onSets[1].has(13)}`);
+      }
+    }
+    return candidates[0].step;
   }
 
   // -- Grouped Nice Loop -------------------------------------------------------
@@ -304,11 +328,13 @@ export class TablingSolver extends AbstractSolver {
 
     if (!this._groupImplicationFired) return null;
 
-    const step = this._checkNiceLoops(this._onTable, true)
-        ?? this._checkNiceLoops(this._offTable, true)
-        ?? this._checkAics(this._offTable);
-
-    if (!step) return null;
+    const candidates: _StepCandidate[] = [];
+    this._collectNiceLoops(this._onTable, true, candidates);
+    this._collectNiceLoops(this._offTable, true, candidates);
+    this._collectAics(this._offTable, candidates);
+    if (candidates.length === 0) return null;
+    candidates.sort(_compareSteps);
+    const step = candidates[0].step;
 
     if (step.type === SolutionType.DISCONTINUOUS_NICE_LOOP)
       return { ...step, type: SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP };
@@ -719,6 +745,11 @@ export class TablingSolver extends AbstractSolver {
     }
 
     const s = this.sudoku;
+    if (process.env.HODOKU_DEBUG_NL) {
+      // Check cell 13 (r2c5) state
+      console.log(`  fillTables: cell13 val=${s.values[13]} cands=${s.candidates[13].toString(2)} isCandidate(13,5)=${s.isCandidate(13,5)}`);
+    }
+
     for (let ci = 0; ci < 81; ci++) {
       if (s.values[ci] !== 0) continue;
       const cellMask = s.candidates[ci];
@@ -755,6 +786,9 @@ export class TablingSolver extends AbstractSolver {
           );
           if (positions.length === 1) {
             off.addSet(positions[0], d);
+          }
+          if (process.env.HODOKU_DEBUG_NL && ti === 135) {
+            console.log(`  fillTables offTable[135] house=${hIdx} positions=[${positions.map(c => `r${Math.floor(c/9)+1}c${c%9+1}`).join(',')}] len=${positions.length}`);
           }
         }
       }
@@ -870,6 +904,7 @@ export class TablingSolver extends AbstractSolver {
    *   - This allows consecutive same-cell entries (within-cell links)
    */
   private _chainIsValid(entry: TableEntry, ci: number, endD: number, endIsOn: boolean): boolean {
+    const debugThis = process.env.HODOKU_DEBUG_NL && entry.tableIndex === 131 && ci === 13 && endD === 1;
     // Step 1: Trace chain backwards from conclusion to root
     const backwardCells: number[] = [ci]; // conclusion cell
     let curCell = ci, curD = endD, curIsOn = endIsOn;
@@ -880,8 +915,6 @@ export class TablingSolver extends AbstractSolver {
       const parent = curIsOn ? entry.retOn[key] : entry.retOff[key];
 
       if (parent === -1) {
-        // Reached dist=1 node (curCell was already pushed in previous iteration).
-        // Its parent is the root (premise at ci).
         break;
       }
 
@@ -896,19 +929,21 @@ export class TablingSolver extends AbstractSolver {
       steps++;
     }
 
-    // Add premise cell as the root
     backwardCells.push(ci);
-
-    // Step 2: Reverse to get forward chain: root → ... → conclusion
     const fwd = backwardCells.reverse();
+
+    if (debugThis) {
+      console.log(`  chainIsValid(131→13,d=1,on=true) fwd=[${fwd.map(c => `r${Math.floor(c/9)+1}c${c%9+1}`).join('→')}]`);
+    }
 
     // Step 3: "First link stays in cell" check
     if (fwd.length >= 2 && fwd[0] === fwd[1]) {
+      if (debugThis) console.log(`    REJECTED: first link stays in cell`);
       return false;
     }
 
     // Step 4: Java lasso detection with delayed insertion
-    const firstCellIndex = fwd[0]; // = ci (premise)
+    const firstCellIndex = fwd[0];
     const lassoSet = new Set<number>();
     let lastCellIndex = -1;
 
@@ -917,6 +952,7 @@ export class TablingSolver extends AbstractSolver {
 
       // Check if this cell is already in the lasso set
       if (lassoSet.has(newCellIndex)) {
+        if (debugThis) console.log(`    REJECTED: lasso at i=${i} cell=r${Math.floor(newCellIndex/9)+1}c${newCellIndex%9+1} lassoSet=[${[...lassoSet].map(c => `r${Math.floor(c/9)+1}c${c%9+1}`).join(',')}]`);
         return false; // lasso detected
       }
 
@@ -933,7 +969,7 @@ export class TablingSolver extends AbstractSolver {
     return true;
   }
 
-  private _checkNiceLoops(tables: TableEntry[], grouped = false): SolutionStep | null {
+  private _collectNiceLoops(tables: TableEntry[], grouped: boolean, out: _StepCandidate[]): void {
     const s = this.sudoku;
     const isOnTables = tables === this._onTable;
 
@@ -951,7 +987,7 @@ export class TablingSolver extends AbstractSolver {
         if (!grouped && entry.offSets[d].has(ci)) {
           const dist = entry.minDistOff[ci * 10 + d];
           if (dist > 2 && this._chainIsValid(entry, ci, d, false)) {
-            return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]);
+            out.push({ step: _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]), dist });
           }
         }
 
@@ -962,7 +998,7 @@ export class TablingSolver extends AbstractSolver {
             if (d2 !== d && entry.onSets[d2].has(ci) && s.isCandidate(ci, d)) {
               const dist = entry.minDistOn[ci * 10 + d2];
               if (dist > 2 && this._chainIsValid(entry, ci, d2, true)) {
-                return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]);
+                out.push({ step: _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]), dist });
               }
             }
           }
@@ -974,6 +1010,9 @@ export class TablingSolver extends AbstractSolver {
         // → eliminate ALL candidates except d from ci
         if (!grouped && entry.onSets[d].has(ci)) {
           const dist = entry.minDistOn[ci * 10 + d];
+          if (process.env.HODOKU_DEBUG_NL && ti === 131) {
+            console.log(`  Case2 check ti=131: dist=${dist} chainValid=${this._chainIsValid(entry, ci, d, true)}`);
+          }
           if (dist > 2 && this._chainIsValid(entry, ci, d, true)) {
             const dels: Candidate[] = [];
             for (let d2 = 1; d2 <= 9; d2++) {
@@ -982,7 +1021,7 @@ export class TablingSolver extends AbstractSolver {
               }
             }
             if (dels.length > 0) {
-              return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, dels);
+              out.push({ step: _step(SolutionType.DISCONTINUOUS_NICE_LOOP, dels), dist });
             }
           }
         }
@@ -994,14 +1033,13 @@ export class TablingSolver extends AbstractSolver {
             if (d2 !== d && entry.offSets[d2].has(ci) && s.isCandidate(ci, d2)) {
               const dist = entry.minDistOff[ci * 10 + d2];
               if (dist > 2 && this._chainIsValid(entry, ci, d2, false)) {
-                return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d2 as Digit }]);
+                out.push({ step: _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d2 as Digit }]), dist });
               }
             }
           }
         }
       }
     }
-    return null;
   }
 
   // ── checkAics() ──────────────────────────────────────────────────────────
@@ -1011,7 +1049,7 @@ export class TablingSolver extends AbstractSolver {
   // startCell and endCell that have candidate d can be eliminated.
   // ---------------------------------------------------------------------------
 
-  private _checkAics(tables: TableEntry[]): SolutionStep | null {
+  private _collectAics(tables: TableEntry[], out: _StepCandidate[]): void {
     const s = this.sudoku;
     for (let ti = 0; ti < TABLE_SIZE; ti++) {
       const entry = tables[ti];
@@ -1034,7 +1072,7 @@ export class TablingSolver extends AbstractSolver {
           }
         }
         // H11: Java requires =2 common buddies (1-buddy case already covered by Nice Loops).
-        if (dels.length >= 2) return _step(SolutionType.AIC, dels);
+        if (dels.length >= 2) out.push({ step: _step(SolutionType.AIC, dels), dist: distOn });
       }
 
       // H10 Type 2: endCell in onSets[d2] where d2 != startCand, endCell sees
@@ -1047,14 +1085,16 @@ export class TablingSolver extends AbstractSolver {
           if (!s.isCandidate(startCell, d2)) continue;
           const distOn = entry.minDistOn[endCell * 10 + d2];
           if (distOn > 0 && distOn <= 2) continue;
-          return _step(SolutionType.AIC, [
-            { index: endCell,   value: startCand as Digit },
-            { index: startCell, value: d2 as Digit },
-          ]);
+          out.push({
+            step: _step(SolutionType.AIC, [
+              { index: endCell,   value: startCand as Digit },
+              { index: startCell, value: d2 as Digit },
+            ]),
+            dist: distOn,
+          });
         }
       }
     }
-    return null;
   }
 
   // ── checkForcingChains() ─────────────────────────────────────────────────
@@ -1257,6 +1297,51 @@ function _step(
   placements: { index: number; value: Digit }[] = [],
 ): SolutionStep {
   return { type, placements, candidatesToDelete };
+}
+
+// ---------------------------------------------------------------------------
+// Step candidate sorting — mirrors Java's SolutionStep.compareTo().
+// Java collects ALL nice loops + AICs, sorts, and returns the best one.
+// Sort order: (1) more eliminations first, (2) shorter chain, (3) index sum.
+// ---------------------------------------------------------------------------
+
+interface _StepCandidate {
+  step: SolutionStep;
+  dist: number;
+}
+
+function _indexSum(dels: Candidate[]): number {
+  let sum = 0;
+  let offset = 1;
+  for (const c of dels) {
+    sum += c.index * offset + c.value;
+    offset += 80;
+  }
+  return sum;
+}
+
+function _compareSteps(a: _StepCandidate, b: _StepCandidate): number {
+  // More eliminations first (descending)
+  const delDiff = b.step.candidatesToDelete.length - a.step.candidatesToDelete.length;
+  if (delDiff !== 0) return delDiff;
+
+  // If not equivalent (different type or different candidatesToDelete): shorter chain, then index sum
+  const ad = a.step.candidatesToDelete;
+  const bd = b.step.candidatesToDelete;
+  let equiv = a.step.type === b.step.type && ad.length === bd.length;
+  if (equiv) {
+    for (let i = 0; i < ad.length; i++) {
+      if (ad[i].index !== bd[i].index || ad[i].value !== bd[i].value) { equiv = false; break; }
+    }
+  }
+  if (!equiv) {
+    const chainDiff = a.dist - b.dist;
+    if (chainDiff !== 0) return chainDiff;
+    return _indexSum(ad) - _indexSum(bd);
+  }
+
+  // Equivalent: shorter chain first
+  return a.dist - b.dist;
 }
 
 // ---------------------------------------------------------------------------
