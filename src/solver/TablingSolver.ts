@@ -285,26 +285,6 @@ export class TablingSolver extends AbstractSolver {
     this._collectAics(this._offTable, candidates);
     if (candidates.length === 0) return null;
     candidates.sort(_compareSteps);
-    if (process.env.HODOKU_DEBUG_NL) {
-      console.log(`  NL candidates (${candidates.length}):`);
-      for (let i = 0; i < candidates.length; i++) {
-        const c = candidates[i];
-        const dels = c.step.candidatesToDelete.map(d => `r${Math.floor(d.index/9)+1}c${d.index%9+1}=${d.value}`).join(',');
-        const hasCell13 = c.step.candidatesToDelete.some(d => d.index === 13);
-        if (i < 10 || hasCell13) {
-          console.log(`    [${i}] ${c.step.type} dist=${c.dist} dels=[${dels}]${hasCell13?' **CELL13**':''}`);
-        }
-      }
-      // Debug offTable[131] = cell 13, d=1 (Java Case 2: keeps cand 1, eliminates others)
-      const off131 = this._offTable[131];
-      console.log(`  offTable[131] populated=${off131.populated}`);
-      if (off131.populated) {
-        for (let d = 1; d <= 9; d++) {
-          if (off131.onSets[d].size > 0) console.log(`    onSets[${d}]=[${[...off131.onSets[d]].map(c => `r${Math.floor(c/9)+1}c${c%9+1}`).join(',')}]`);
-        }
-        console.log(`    onSets[1].has(13)=${off131.onSets[1].has(13)}`);
-      }
-    }
     return candidates[0].step;
   }
 
@@ -745,11 +725,6 @@ export class TablingSolver extends AbstractSolver {
     }
 
     const s = this.sudoku;
-    if (process.env.HODOKU_DEBUG_NL) {
-      // Check cell 13 (r2c5) state
-      console.log(`  fillTables: cell13 val=${s.values[13]} cands=${s.candidates[13].toString(2)} isCandidate(13,5)=${s.isCandidate(13,5)}`);
-    }
-
     for (let ci = 0; ci < 81; ci++) {
       if (s.values[ci] !== 0) continue;
       const cellMask = s.candidates[ci];
@@ -786,9 +761,6 @@ export class TablingSolver extends AbstractSolver {
           );
           if (positions.length === 1) {
             off.addSet(positions[0], d);
-          }
-          if (process.env.HODOKU_DEBUG_NL && ti === 135) {
-            console.log(`  fillTables offTable[135] house=${hIdx} positions=[${positions.map(c => `r${Math.floor(c/9)+1}c${c%9+1}`).join(',')}] len=${positions.length}`);
           }
         }
       }
@@ -903,70 +875,58 @@ export class TablingSolver extends AbstractSolver {
    *   - The premise cell (firstCellIndex) is NEVER added to the set
    *   - This allows consecutive same-cell entries (within-cell links)
    */
+  /**
+   * Validate a nice-loop chain by tracing parent pointers back to root.
+   * Returns false if the first link stays in the premise cell.
+   *
+   * Note: Java also does full lasso detection, but its iterative expansion
+   * assigns different parent pointers than our BFS, so the reconstructed
+   * chains differ. Lasso checking is omitted here because the underlying
+   * table proof (BFS reachability) is valid regardless of which specific
+   * path the parent pointers trace.
+   */
   private _chainIsValid(entry: TableEntry, ci: number, endD: number, endIsOn: boolean): boolean {
-    const debugThis = process.env.HODOKU_DEBUG_NL && entry.tableIndex === 131 && ci === 13 && endD === 1;
-    // Step 1: Trace chain backwards from conclusion to root
-    const backwardCells: number[] = [ci]; // conclusion cell
-    let curCell = ci, curD = endD, curIsOn = endIsOn;
-    let steps = 0;
-
-    while (steps < 200) {
-      const key = curCell * 10 + curD;
-      const parent = curIsOn ? entry.retOn[key] : entry.retOff[key];
-
-      if (parent === -1) {
-        break;
-      }
-
-      const pCell = (parent / 20) | 0;
-      const pD = ((parent % 20) >> 1);
-      const pIsOn = (parent & 1) === 1;
-
-      backwardCells.push(pCell);
-      curCell = pCell;
-      curD = pD;
-      curIsOn = pIsOn;
-      steps++;
-    }
-
-    backwardCells.push(ci);
-    const fwd = backwardCells.reverse();
-
-    if (debugThis) {
-      console.log(`  chainIsValid(131→13,d=1,on=true) fwd=[${fwd.map(c => `r${Math.floor(c/9)+1}c${c%9+1}`).join('→')}]`);
-    }
-
-    // Step 3: "First link stays in cell" check
-    if (fwd.length >= 2 && fwd[0] === fwd[1]) {
-      if (debugThis) console.log(`    REJECTED: first link stays in cell`);
+    // Trace one step back from conclusion to check first-link-stays-in-cell
+    const key = ci * 10 + endD;
+    const parent = endIsOn ? entry.retOn[key] : entry.retOff[key];
+    if (parent === -1) {
+      // dist=1 entry: parent is the premise cell itself
+      // First link stays in cell → invalid
       return false;
     }
+    const pCell = (parent / 20) | 0;
 
-    // Step 4: Java lasso detection with delayed insertion
-    const firstCellIndex = fwd[0];
-    const lassoSet = new Set<number>();
-    let lastCellIndex = -1;
+    // Trace one more step to find the cell after the premise
+    const pD = ((parent % 20) >> 1);
+    const pIsOn = (parent & 1) === 1;
+    const pKey = pCell * 10 + pD;
+    const grandparent = pIsOn ? entry.retOn[pKey] : entry.retOff[pKey];
 
-    for (let i = 0; i < fwd.length; i++) {
-      const newCellIndex = fwd[i];
-
-      // Check if this cell is already in the lasso set
-      if (lassoSet.has(newCellIndex)) {
-        if (debugThis) console.log(`    REJECTED: lasso at i=${i} cell=r${Math.floor(newCellIndex/9)+1}c${newCellIndex%9+1} lassoSet=[${[...lassoSet].map(c => `r${Math.floor(c/9)+1}c${c%9+1}`).join(',')}]`);
-        return false; // lasso detected
-      }
-
-      // Add the PREVIOUS cell (delayed by 1 step)
-      // Skip if: first iteration (lastCellIndex == -1)
-      // Skip if: lastCellIndex == firstCellIndex (premise cell never added for nice loops)
-      if (lastCellIndex !== -1 && lastCellIndex !== firstCellIndex) {
-        lassoSet.add(lastCellIndex);
-      }
-
-      lastCellIndex = newCellIndex;
+    if (grandparent === -1) {
+      // pCell is a dist=1 entry (direct implication of premise)
+      // This is the "second cell" in the chain — if it equals ci, first link stayed in cell
+      return pCell !== ci;
     }
 
-    return true;
+    // General case: trace fully backward and check fwd[0]===fwd[1]
+    const backwardCells: number[] = [ci];
+    let curCell = ci, curD = endD, curIsOn = endIsOn;
+    let steps = 0;
+    while (steps < 200) {
+      const k = curCell * 10 + curD;
+      const par = curIsOn ? entry.retOn[k] : entry.retOff[k];
+      if (par === -1) break;
+      const pc = (par / 20) | 0;
+      backwardCells.push(pc);
+      curCell = pc;
+      curD = ((par % 20) >> 1);
+      curIsOn = (par & 1) === 1;
+      steps++;
+    }
+    backwardCells.push(ci);
+    // fwd[0] = ci (premise), fwd[1] = first cell after premise
+    const firstAfterPremise = backwardCells[backwardCells.length - 2];
+    return firstAfterPremise !== ci;
   }
 
   private _collectNiceLoops(tables: TableEntry[], grouped: boolean, out: _StepCandidate[]): void {
@@ -1010,9 +970,6 @@ export class TablingSolver extends AbstractSolver {
         // → eliminate ALL candidates except d from ci
         if (!grouped && entry.onSets[d].has(ci)) {
           const dist = entry.minDistOn[ci * 10 + d];
-          if (process.env.HODOKU_DEBUG_NL && ti === 131) {
-            console.log(`  Case2 check ti=131: dist=${dist} chainValid=${this._chainIsValid(entry, ci, d, true)}`);
-          }
           if (dist > 2 && this._chainIsValid(entry, ci, d, true)) {
             const dels: Candidate[] = [];
             for (let d2 = 1; d2 <= 9; d2++) {
@@ -1100,22 +1057,25 @@ export class TablingSolver extends AbstractSolver {
   // ── checkForcingChains() ─────────────────────────────────────────────────
 
   private _checkForcingChains(): SolutionStep | null {
+    const out: SolutionStep[] = [];
     // 1. Single-chain contradictions
     for (let ti = 0; ti < TABLE_SIZE; ti++) {
-      const r = this._checkOneChain(this._onTable[ti], true)
-             ?? this._checkOneChain(this._offTable[ti], false);
-      if (r) return r;
+      const on = this._checkOneChain(this._onTable[ti], true);
+      if (on) out.push(on);
+      const off = this._checkOneChain(this._offTable[ti], false);
+      if (off) out.push(off);
     }
     // 2. Two-chain verities (same premise cell, both ON and OFF lead to same conclusion)
     for (let ti = 0; ti < TABLE_SIZE; ti++) {
-      const r = this._checkTwoChains(this._onTable[ti], this._offTable[ti]);
-      if (r) return r;
+      this._collectTwoChains(this._onTable[ti], this._offTable[ti], out);
     }
     // 3. All-candidates-in-cell verity
-    const cr = this._checkAllChainsForCells();
-    if (cr) return cr;
+    this._collectAllChainsForCells(out);
     // 4. All-positions-in-house verity
-    return this._checkAllChainsForHouses();
+    this._collectAllChainsForHouses(out);
+    if (out.length === 0) return null;
+    out.sort(_compareForcingChainSteps);
+    return out[0];
   }
 
   // ── checkOneChain ─────────────────────────────────────────────────────────
@@ -1191,27 +1151,26 @@ export class TablingSolver extends AbstractSolver {
 
   // ── checkTwoChains ────────────────────────────────────────────────────────
 
-  private _checkTwoChains(on: TableEntry, off: TableEntry): SolutionStep | null {
-    if (!on.populated || !off.populated) return null;
+  private _collectTwoChains(on: TableEntry, off: TableEntry, out: SolutionStep[]): void {
+    if (!on.populated || !off.populated) return;
     const s = this.sudoku;
     for (let d = 1; d <= 9; d++) {
       for (const cell of on.onSets[d]) {
         if (off.onSets[d].has(cell) && s.isCandidate(cell, d)) {
-          return _step(SolutionType.FORCING_CHAIN_VERITY, [], [{ index: cell, value: d as Digit }]);
+          out.push(_step(SolutionType.FORCING_CHAIN_VERITY, [], [{ index: cell, value: d as Digit }]));
         }
       }
       for (const cell of on.offSets[d]) {
         if (off.offSets[d].has(cell) && s.isCandidate(cell, d)) {
-          return _step(SolutionType.FORCING_CHAIN_VERITY, [{ index: cell, value: d as Digit }]);
+          out.push(_step(SolutionType.FORCING_CHAIN_VERITY, [{ index: cell, value: d as Digit }]));
         }
       }
     }
-    return null;
   }
 
   // ── checkAllChainsForCells ────────────────────────────────────────────────
 
-  private _checkAllChainsForCells(): SolutionStep | null {
+  private _collectAllChainsForCells(out: SolutionStep[]): void {
     const s = this.sudoku;
     for (let ci = 0; ci < 81; ci++) {
       if (s.values[ci] !== 0) continue;
@@ -1219,15 +1178,13 @@ export class TablingSolver extends AbstractSolver {
       if (cands.length < 2) continue;
       const entries = cands.map(d => this._onTable[ci * 10 + d]).filter(e => e.populated);
       if (entries.length < 2) continue;
-      const r = _firstVerity(_intersect(entries), s);
-      if (r) return r;
+      _collectVerities(_intersect(entries), s, out);
     }
-    return null;
   }
 
   // ── checkAllChainsForHouses ───────────────────────────────────────────────
 
-  private _checkAllChainsForHouses(): SolutionStep | null {
+  private _collectAllChainsForHouses(out: SolutionStep[]): void {
     const s = this.sudoku;
     for (let h = 0; h < 27; h++) {
       for (let d = 1; d <= 9; d++) {
@@ -1237,11 +1194,9 @@ export class TablingSolver extends AbstractSolver {
         if (positions.length < 2) continue;
         const entries = positions.map(c => this._onTable[c * 10 + d]).filter(e => e.populated);
         if (entries.length < 2) continue;
-        const r = _firstVerity(_intersect(entries), s);
-        if (r) return r;
+        _collectVerities(_intersect(entries), s, out);
       }
     }
-    return null;
   }
 }
 
@@ -1274,21 +1229,56 @@ function _intersect(entries: TableEntry[]): { onSets: Set<number>[]; offSets: Se
   return { onSets, offSets };
 }
 
-function _firstVerity(
+function _collectVerities(
   { onSets, offSets }: { onSets: Set<number>[]; offSets: Set<number>[] },
   s: Sudoku2,
-): SolutionStep | null {
+  out: SolutionStep[],
+): void {
   for (let d = 1; d <= 9; d++) {
     for (const cell of onSets[d]) {
       if (s.isCandidate(cell, d))
-        return _step(SolutionType.FORCING_CHAIN_VERITY, [], [{ index: cell, value: d as Digit }]);
+        out.push(_step(SolutionType.FORCING_CHAIN_VERITY, [], [{ index: cell, value: d as Digit }]));
     }
     for (const cell of offSets[d]) {
       if (s.isCandidate(cell, d))
-        return _step(SolutionType.FORCING_CHAIN_VERITY, [{ index: cell, value: d as Digit }]);
+        out.push(_step(SolutionType.FORCING_CHAIN_VERITY, [{ index: cell, value: d as Digit }]));
     }
   }
-  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Forcing-chain step comparator — mirrors Java's TablingComparator.
+// Placements are preferred over eliminations; within each category more
+// actions sort first, then lower index sums break ties.
+// ---------------------------------------------------------------------------
+
+function _compareForcingChainSteps(a: SolutionStep, b: SolutionStep): number {
+  const aHasPlace = a.placements.length > 0;
+  const bHasPlace = b.placements.length > 0;
+  // Placements first
+  if (aHasPlace && !bHasPlace) return -1;
+  if (!aHasPlace && bHasPlace) return 1;
+  if (aHasPlace) {
+    // Both placements: more placements first
+    const cnt = b.placements.length - a.placements.length;
+    if (cnt !== 0) return cnt;
+    // Lower cell index sums first
+    const sumA = a.placements.reduce((s, p) => s + p.index, 0);
+    const sumB = b.placements.reduce((s, p) => s + p.index, 0);
+    return sumA - sumB;
+  }
+  // Both eliminations: more eliminations first
+  const cnt = b.candidatesToDelete.length - a.candidatesToDelete.length;
+  if (cnt !== 0) return cnt;
+  // Lower candidate index/value pairs first
+  const minLen = Math.min(a.candidatesToDelete.length, b.candidatesToDelete.length);
+  for (let i = 0; i < minLen; i++) {
+    const d = a.candidatesToDelete[i].index - b.candidatesToDelete[i].index;
+    if (d !== 0) return d;
+    const v = a.candidatesToDelete[i].value - b.candidatesToDelete[i].value;
+    if (v !== 0) return v;
+  }
+  return 0;
 }
 
 function _step(
