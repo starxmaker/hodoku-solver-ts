@@ -1,5 +1,5 @@
-﻿/*
- * hodoku-solver-ts â€” TypeScript port of HoDoKu's logical Sudoku solver.
+/*
+ * hodoku-solver-ts — TypeScript port of HoDoKu's logical Sudoku solver.
  * Copyright (C) 2026 starxmaker
  *
  * Ported from HoDoKu (https://sourceforge.net/projects/hodoku/)
@@ -28,12 +28,12 @@ import type { Als } from "./AlsSolver";
 import { collectAlses } from "./AlsSolver";
 
 // ---------------------------------------------------------------------------
-// TablingSolver â€” mirrors solver/TablingSolver.java (chain-only subset)
+// TablingSolver — mirrors solver/TablingSolver.java (chain-only subset)
 //
 // Implements Trebors Tables for:
-//   â€¢ Forcing Chain Contradiction  â†’ SolutionType.FORCING_CHAIN
-//   â€¢ Forcing Chain Verity         â†’ SolutionType.FORCING_CHAIN
-//   â€¢ Nice Loop (Discontinuous)    â†’ SolutionType.NICE_LOOP
+//   • Forcing Chain Contradiction  → SolutionType.FORCING_CHAIN
+//   • Forcing Chain Verity         → SolutionType.FORCING_CHAIN
+//   • Nice Loop (Discontinuous)    → SolutionType.NICE_LOOP
 //
 // Forcing Net is not implemented (requires look-ahead with grid cloning; the
 // chain-only table already covers the same practical eliminations).
@@ -43,9 +43,9 @@ import { collectAlses } from "./AlsSolver";
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// TableEntry â€” simplified version of solver/TableEntry.java
+// TableEntry — simplified version of solver/TableEntry.java
 //
-// Per premise (cellÃ—digit ON or OFF) we track which cells can have a digit
+// Per premise (cell×digit ON or OFF) we track which cells can have a digit
 // SET (onSets) or DELETED (offSets) as a consequence.
 // ---------------------------------------------------------------------------
 
@@ -62,6 +62,25 @@ class TableEntry {
   /** cells from which digit d is DELETED. */
   readonly offSets: Set<number>[] = Array.from({ length: DSIZE }, () => new Set<number>());
 
+  /** Maximum BFS distance (chain length) at which each cell+digit was reached via addSet.
+   *  Index = cell*10+digit.  0 means not yet recorded.
+   *  We track max because Java checks per-entry distances and allows any entry
+   *  with dist > 2 even if other entries for the same cell+cand are closer. */
+  readonly minDistOn: Uint16Array = new Uint16Array(TABLE_SIZE);
+  /** Maximum BFS distance at which each cell+digit was reached via addDel.  Index = cell*10+digit. */
+  readonly minDistOff: Uint16Array = new Uint16Array(TABLE_SIZE);
+
+  /** BFS path flag: 1 if the path from initial entry to this entry's parent includes
+   *  the premise cell. Used for chain validation (reject if path loops through start cell). */
+  readonly pathVisitsPremiseOn:  Uint8Array = new Uint8Array(TABLE_SIZE);
+  readonly pathVisitsPremiseOff: Uint8Array = new Uint8Array(TABLE_SIZE);
+
+  /** Parent pointer for ON conclusions. Encoded as cell*20+digit*2+(isOn?1:0).
+   *  -1 = initial entry (parent is the root/premise). */
+  readonly retOn:  Int16Array = new Int16Array(TABLE_SIZE).fill(-1);
+  /** Parent pointer for OFF conclusions. Same encoding as retOn. */
+  readonly retOff: Int16Array = new Int16Array(TABLE_SIZE).fill(-1);
+
   private _populated = false;
   get populated(): boolean { return this._populated; }
 
@@ -71,6 +90,12 @@ class TableEntry {
       this.onSets[d].clear();
       this.offSets[d].clear();
     }
+    this.minDistOn.fill(0);
+    this.minDistOff.fill(0);
+    this.pathVisitsPremiseOn.fill(0);
+    this.pathVisitsPremiseOff.fill(0);
+    this.retOn.fill(-1);
+    this.retOff.fill(-1);
   }
 
   addSet(cell: number, d: number): boolean {
@@ -110,7 +135,7 @@ const BUDDY_SETS: readonly Set<number>[] = Sudoku2.BUDDIES.map(b => new Set(b));
 const TABLE_SIZE = 810;
 
 // ---------------------------------------------------------------------------
-// GroupNode — a set of 2-3 cells in the same row/column AND same box that
+// GroupNode � a set of 2-3 cells in the same row/column AND same box that
 // share a common candidate.  A group acts as a compound chain node: the
 // group is "OFF" when ALL its cells lose the candidate.
 // ---------------------------------------------------------------------------
@@ -222,7 +247,7 @@ export class TablingSolver extends AbstractSolver {
   }
 
 
-  // â”€â”€ Public interface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Public interface ──────────────────────────────────────────────────────
 
   override getStep(type: SolutionType): SolutionStep | null {
     switch (type) {
@@ -249,18 +274,17 @@ export class TablingSolver extends AbstractSolver {
     }
   }
 
-  // â”€â”€ Top-level orchestration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Top-level orchestration ───────────────────────────────────────────────
 
   private _getNiceLoop(): SolutionStep | null {
     this._fillTables();
     this._expandTables(this._onTable, this._offTable);
-    // strict=true: mirrors Java's distance > 2 rejection (checkNiceLoop guard).
     return this._checkNiceLoops(this._onTable)
         ?? this._checkNiceLoops(this._offTable)
         ?? this._checkAics(this._offTable);
   }
 
-  // ── Grouped Nice Loop ───────────────────────────────────────────────────────
+  // -- Grouped Nice Loop -------------------------------------------------------
   //
   // After filling direct-implication tables, expands them with group-node
   // implications: when all cells of a GroupNode lose their candidate (group
@@ -273,15 +297,15 @@ export class TablingSolver extends AbstractSolver {
     const groups = collectGroupNodes(this.sudoku);
     if (groups.length === 0) return null;
 
-    // H4: Java ALLOW_ALS_IN_TABLING_CHAINS=false by default — no ALS expansion for grouped loops.
+    // H4: Java ALLOW_ALS_IN_TABLING_CHAINS=false by default � no ALS expansion for grouped loops.
     this._groupImplicationFired = false;
     this._fillTables();
     this._expandTablesWithGroups(this._onTable, this._offTable, groups);
 
     if (!this._groupImplicationFired) return null;
 
-    const step = this._checkNiceLoops(this._onTable)
-        ?? this._checkNiceLoops(this._offTable)
+    const step = this._checkNiceLoops(this._onTable, true)
+        ?? this._checkNiceLoops(this._offTable, true)
         ?? this._checkAics(this._offTable);
 
     if (!step) return null;
@@ -295,7 +319,7 @@ export class TablingSolver extends AbstractSolver {
     return { ...step, type: SolutionType.GROUPED_NICE_LOOP };
   }
 
-  // ── expandTablesWithGroups() ────────────────────────────────────────────────
+  // -- expandTablesWithGroups() ------------------------------------------------
   //
   // Same BFS as _expandTables() but with an extra "group-OFF" check:
   // whenever a new OFF(d) entry is added to a destination table, we check
@@ -311,6 +335,7 @@ export class TablingSolver extends AbstractSolver {
     groups: GroupNode[],
   ): void {
     type SnapEntry = { cell: number; d: number; isOn: boolean };
+    type GQEntry = SnapEntry & { dist: number };
     const onSnap:  SnapEntry[][] = Array.from({ length: TABLE_SIZE }, () => []);
     const offSnap: SnapEntry[][] = Array.from({ length: TABLE_SIZE }, () => []);
 
@@ -332,21 +357,31 @@ export class TablingSolver extends AbstractSolver {
     const checkGroupOff = (
       g: GroupNode,
       dest: TableEntry,
-      queue: SnapEntry[],
+      queue: GQEntry[],
     ): void => {
       const d = g.digit;
       // All group cells must be in offSets[d].
       if (!g.cells.every(c => dest.offSets[d].has(c))) return;
-      // Group is fully OFF — check for solo positions and group-to-group links.
+
+      // Compute group-OFF distance as max of individual cell OFF distances.
+      let groupDist = 0;
+      for (const c of g.cells) {
+        const cd = dest.minDistOff[c * 10 + d] || 1;
+        if (cd > groupDist) groupDist = cd;
+      }
+      const tDist = groupDist + 1;
+
+      // Group is fully OFF � check for solo positions and group-to-group links.
       const solveHouse = (houseIdx: number): void => {
         const remaining: number[] = (HOUSE_CELLS[houseIdx] as number[]).filter(
           c => !g.cells.includes(c) && s.values[c] === 0 && s.isCandidate(c, d),
         );
         if (remaining.length === 1 && dest.addSet(remaining[0], d)) {
+          dest.minDistOn[remaining[0] * 10 + d] = tDist;
           this._groupImplicationFired = true;
-          queue.push({ cell: remaining[0], d, isOn: true });
+          queue.push({ cell: remaining[0], d, isOn: true, dist: tDist });
         } else if (remaining.length > 1) {
-          // H21: group-to-group strong link — check if chain eliminations leave
+          // H21: group-to-group strong link � check if chain eliminations leave
           // only the cells of a second group G2 as the sole d-source in this house.
           const chainRemaining = remaining.filter(c => !dest.offSets[d].has(c));
           if (chainRemaining.length > 1) {
@@ -363,8 +398,9 @@ export class TablingSolver extends AbstractSolver {
               for (const bCell of g2Buddies) {
                 if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
                 if (dest.addDel(bCell, d)) {
+                  dest.minDistOff[bCell * 10 + d] = tDist;
                   this._groupImplicationFired = true;
-                  queue.push({ cell: bCell, d, isOn: false });
+                  queue.push({ cell: bCell, d, isOn: false, dist: tDist });
                   for (const gk of groupsByDigit[d]) {
                     if (gk.cells.includes(bCell)) checkGroupOff(gk, dest, queue);
                   }
@@ -391,30 +427,40 @@ export class TablingSolver extends AbstractSolver {
         const premiseCi = (ti / 10) | 0;
         const premiseD  = ti % 10;
 
-        // BFS queue (no dist tracking in grouped tables).
-        const queue2: SnapEntry[] = [...snap[ti]];
+        // BFS queue with distance tracking.
+        const queue2: GQEntry[] = snap[ti].map(e => ({ ...e, dist: 1 }));
+
+        // Record distance 1 for all initial (direct implication) entries.
+        for (const { cell, d, isOn } of snap[ti]) {
+          const key = cell * 10 + d;
+          if (isOn) { dest.minDistOn[key] = 1; }
+          else      { dest.minDistOff[key] = 1; }
+        }
 
         let qi = 0;
         while (qi < queue2.length) {
-          const { cell: c, d, isOn } = queue2[qi++];
+          const { cell: c, d, isOn, dist } = queue2[qi++];
           if (c === premiseCi && d === premiseD) continue;
 
           const srcTi = c * 10 + d;
           const srcSnap = isOn ? onSnap[srcTi] : offSnap[srcTi];
 
           for (const { cell: c2, d: d2, isOn: isOn2 } of srcSnap) {
+            const newDist = dist + 1;
             if (isOn2) {
               if (dest.addSet(c2, d2)) {
-                queue2.push({ cell: c2, d: d2, isOn: true });
+                dest.minDistOn[c2 * 10 + d2] = newDist;
+                queue2.push({ cell: c2, d: d2, isOn: true, dist: newDist });
               }
             } else {
               if (dest.addDel(c2, d2)) {
-                queue2.push({ cell: c2, d: d2, isOn: false });
+                dest.minDistOff[c2 * 10 + d2] = newDist;
+                queue2.push({ cell: c2, d: d2, isOn: false, dist: newDist });
                 // Group-OFF check: c2 going OFF may complete a group.
                 for (const g of groupsByDigit[d2]) {
                   if (g.cells.includes(c2)) checkGroupOff(g, dest, queue2);
                 }
-                // H22: Singleton-OFF → Group-ON: if c2 is not a group member,
+                // H22: Singleton-OFF ? Group-ON: if c2 is not a group member,
                 // its elimination may force a group in one of c2's houses.
                 if (!groupsByDigit[d2].some(g => g.cells.includes(c2))) {
                   for (const houseIdx of [
@@ -429,16 +475,19 @@ export class TablingSolver extends AbstractSolver {
                            && s.isCandidate(hc, d2) && !dest.offSets[d2].has(hc),
                       );
                       if (rem.length === 0) {
-                        // G forced ON — delete d2 from cells that see all of G.
+                        // G forced ON � delete d2 from cells that see all of G.
+                        const gTriggeredDist = newDist + 1;
                         const gBuddies = g.cells.reduce(
                           (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
                           (HOUSE_CELLS[houseIdx] as number[]).filter(hc => !g.cells.includes(hc)),
                         );
                         for (const bCell of gBuddies) {
                           if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d2) || dest.offSets[d2].has(bCell)) continue;
+                          const bKey = bCell * 10 + d2;
                           if (dest.addDel(bCell, d2)) {
+                            dest.minDistOff[bCell * 10 + d2] = gTriggeredDist;
                             this._groupImplicationFired = true;
-                            queue2.push({ cell: bCell, d: d2, isOn: false });
+                            queue2.push({ cell: bCell, d: d2, isOn: false, dist: gTriggeredDist });
                             for (const gk of groupsByDigit[d2]) {
                               if (gk.cells.includes(bCell)) checkGroupOff(gk, dest, queue2);
                             }
@@ -456,13 +505,13 @@ export class TablingSolver extends AbstractSolver {
     }
   }
 
-  // ──  _expandTablesWithAls() ────────────────────────────────────────────────
+  // --  _expandTablesWithAls() ------------------------------------------------
   //
   // BFS extension pass for ALS-node implications.
   //
   // ALS rule: if all cells of an ALS that contain entry-digit e are eliminated
-  // (offSets[e] ∋ every cell in als.cellsFor[e]), then for each exit digit z
-  // (z ≠ e) the ALS forces eliminations on every cell in als.buddiesFor[z].
+  // (offSets[e] ? every cell in als.cellsFor[e]), then for each exit digit z
+  // (z ? e) the ALS forces eliminations on every cell in als.buddiesFor[z].
   //
   // Called after _expandTablesWithGroups (for grouped nice loops) or after
   // _expandTables (for forcing chains/nets).  The snapshot used for BFS is
@@ -476,7 +525,7 @@ export class TablingSolver extends AbstractSolver {
     if (alses.length === 0) return;
     const s = this.sudoku;
 
-    // Build per-cell+digit → ALS lookup  (which ALS have cell c as a cellsFor[e] member)
+    // Build per-cell+digit ? ALS lookup  (which ALS have cell c as a cellsFor[e] member)
     type AlsEntry = { als: Als; e: number };
     const cellDigitToAlses = new Map<number, AlsEntry[]>();
     for (const als of alses) {
@@ -522,9 +571,9 @@ export class TablingSolver extends AbstractSolver {
           }
         }
       }
-      // H18: ALS buddy forcing — if exit-digit deletions reduce a buddy cell
+      // H18: ALS buddy forcing � if exit-digit deletions reduce a buddy cell
       // to 1 remaining candidate, that cell is forced ON for that candidate.
-      // Only applies to cells with ≥3 original candidates; bivalue cells are
+      // Only applies to cells with =3 original candidates; bivalue cells are
       // already handled by normal table fill.  (Mirrors Java fillTablesWithAls.)
       const alsBuddies = new Set<number>();
       for (let z = 1; z <= 9; z++) {
@@ -592,14 +641,14 @@ export class TablingSolver extends AbstractSolver {
   }
 
   private _getForcingChain(): SolutionStep | null {
-    // H4: Java ALLOW_ALS_IN_TABLING_CHAINS=false by default — no ALS expansion.
+    // H4: Java ALLOW_ALS_IN_TABLING_CHAINS=false by default � no ALS expansion.
     this._fillTables();
     this._expandTables(this._onTable, this._offTable);
     return this._checkForcingChains();
   }
 
   private _getForcingNet(): SolutionStep | null {
-    // H4: Java ALLOW_ALS_IN_TABLING_CHAINS=false by default — no ALS expansion.
+    // H4: Java ALLOW_ALS_IN_TABLING_CHAINS=false by default � no ALS expansion.
     this._fillTablesForNet();
     this._expandTables(this._onTable, this._offTable);
     const step = this._checkForcingChains();
@@ -611,7 +660,7 @@ export class TablingSolver extends AbstractSolver {
     return { ...step, type: SolutionType.FORCING_NET };
   }
 
-  // ── fillTablesForNet() ────────────────────────────────────────────────────
+  // -- fillTablesForNet() ----------------------------------------------------
   //
   // Java chainsOnly=false: clone the grid for each premise, propagate naked
   // and hidden singles, record all transitive consequences in the tables.
@@ -652,7 +701,7 @@ export class TablingSolver extends AbstractSolver {
     }
   }
 
-  // â”€â”€ fillTables() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── fillTables() ─────────────────────────────────────────────────────────
   //
   // Java chainsOnly=true branch: direct (single-step) implications only.
   // Expansion to deeper chains happens in expandTables().
@@ -679,7 +728,7 @@ export class TablingSolver extends AbstractSolver {
       for (const d of cellCands) {
         const ti = ci * 10 + d;
 
-        // â”€â”€ ON premise: d is SET in ci â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── ON premise: d is SET in ci ─────────────────────────────────────
         const on = this._onTable[ti];
         // All other candidates in cell are deleted
         for (const d2 of cellCands) {
@@ -692,9 +741,9 @@ export class TablingSolver extends AbstractSolver {
           }
         }
 
-        // â”€â”€ OFF premise: d is DELETED from ci â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── OFF premise: d is DELETED from ci ─────────────────────────────
         const off = this._offTable[ti];
-        // Naked single: only 1 other candidate â†’ that must be set
+        // Naked single: only 1 other candidate → that must be set
         const others = cellCands.filter(x => x !== d);
         if (others.length === 1) {
           off.addSet(ci, others[0]);
@@ -712,7 +761,7 @@ export class TablingSolver extends AbstractSolver {
     }
   }
 
-  // â”€â”€ expandTables() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── expandTables() ───────────────────────────────────────────────────────
   //
   // For each conclusion already in a table, pull in the consequences of that
   // conclusion from the matching base table (BFS-style until convergence).
@@ -723,7 +772,7 @@ export class TablingSolver extends AbstractSolver {
 
   private _expandTables(onTable: TableEntry[], offTable: TableEntry[]): void {
     // Snapshot direct implications before expansion so BFS sources are the
-    // initial state only — prevents pulling in transitively-expanded data.
+    // initial state only � prevents pulling in transitively-expanded data.
     type SnapEntry = { cell: number; d: number; isOn: boolean };
     const onSnap:  SnapEntry[][] = Array.from({ length: TABLE_SIZE }, () => []);
     const offSnap: SnapEntry[][] = Array.from({ length: TABLE_SIZE }, () => []);
@@ -748,23 +797,56 @@ export class TablingSolver extends AbstractSolver {
         const premiseD  = ti % 10;
 
         // BFS queue: entries from the initial fill state.
-        type QEntry = { cell: number; d: number; isOn: boolean };
-        const queue: QEntry[] = [...snap[ti]];
+        type QEntry = { cell: number; d: number; isOn: boolean; dist: number; pathVisitsPremise: number };
+        const queue: QEntry[] = snap[ti].map(e => ({
+          ...e, dist: 1,
+          pathVisitsPremise: 0,
+        }));
+
+        // Record distance 1 and parent=-1 (root) for all initial entries.
+        for (const { cell, d, isOn } of snap[ti]) {
+          const key = cell * 10 + d;
+          if (isOn) {
+            dest.minDistOn[key] = 1;
+            dest.pathVisitsPremiseOn[key] = 0;
+            dest.retOn[key] = -1;
+          } else {
+            dest.minDistOff[key] = 1;
+            dest.pathVisitsPremiseOff[key] = 0;
+            dest.retOff[key] = -1;
+          }
+        }
 
         let qi = 0;
         while (qi < queue.length) {
-          const { cell: c, d, isOn } = queue[qi++];
+          const { cell: c, d, isOn, dist, pathVisitsPremise: pvp } = queue[qi++];
           if (c === premiseCi && d === premiseD) continue;
+
+          const childPvp = (pvp || c === premiseCi) ? 1 : 0;
+          // Encode parent pointer: cell*20+digit*2+(isOn?1:0)
+          const parentEnc = c * 20 + d * 2 + (isOn ? 1 : 0);
 
           const srcSnap = isOn ? onSnap[c * 10 + d] : offSnap[c * 10 + d];
           for (const { cell: c2, d: d2, isOn: isOn2 } of srcSnap) {
+            const newDist = dist + 1;
+            const key2 = c2 * 10 + d2;
             if (isOn2) {
               if (dest.addSet(c2, d2)) {
-                queue.push({ cell: c2, d: d2, isOn: true });
+                dest.minDistOn[key2] = newDist;
+                dest.pathVisitsPremiseOn[key2] = childPvp;
+                dest.retOn[key2] = parentEnc;
+                queue.push({ cell: c2, d: d2, isOn: true, dist: newDist, pathVisitsPremise: childPvp });
+              } else if (childPvp === 0 && dest.pathVisitsPremiseOn[key2]) {
+                dest.pathVisitsPremiseOn[key2] = 0;
               }
             } else {
               if (dest.addDel(c2, d2)) {
-                queue.push({ cell: c2, d: d2, isOn: false });
+                dest.minDistOff[key2] = newDist;
+                dest.pathVisitsPremiseOff[key2] = childPvp;
+                dest.retOff[key2] = parentEnc;
+                queue.push({ cell: c2, d: d2, isOn: false, dist: newDist, pathVisitsPremise: childPvp });
+              } else if (childPvp === 0 && dest.pathVisitsPremiseOff[key2]) {
+                dest.pathVisitsPremiseOff[key2] = 0;
               }
             }
           }
@@ -773,7 +855,85 @@ export class TablingSolver extends AbstractSolver {
     }
   }
 
-  private _checkNiceLoops(tables: TableEntry[]): SolutionStep | null {
+  /**
+   * Validate a nice-loop chain by tracing parent pointers back to root,
+   * reversing to forward order, then checking for lassos using Java's
+   * delayed-insertion algorithm.
+   *
+   * Returns false (invalid) if:
+   *   1. First link stays in cell: chain[0].cell == chain[1].cell
+   *   2. Lasso: a non-premise cell appears after a 1-step gap
+   *
+   * Java's rules (from addChain):
+   *   - Cells are added to lassoSet with a 1-step delay
+   *   - The premise cell (firstCellIndex) is NEVER added to the set
+   *   - This allows consecutive same-cell entries (within-cell links)
+   */
+  private _chainIsValid(entry: TableEntry, ci: number, endD: number, endIsOn: boolean): boolean {
+    // Step 1: Trace chain backwards from conclusion to root
+    const backwardCells: number[] = [ci]; // conclusion cell
+    let curCell = ci, curD = endD, curIsOn = endIsOn;
+    let steps = 0;
+
+    while (steps < 200) {
+      const key = curCell * 10 + curD;
+      const parent = curIsOn ? entry.retOn[key] : entry.retOff[key];
+
+      if (parent === -1) {
+        // Reached dist=1 node (curCell was already pushed in previous iteration).
+        // Its parent is the root (premise at ci).
+        break;
+      }
+
+      const pCell = (parent / 20) | 0;
+      const pD = ((parent % 20) >> 1);
+      const pIsOn = (parent & 1) === 1;
+
+      backwardCells.push(pCell);
+      curCell = pCell;
+      curD = pD;
+      curIsOn = pIsOn;
+      steps++;
+    }
+
+    // Add premise cell as the root
+    backwardCells.push(ci);
+
+    // Step 2: Reverse to get forward chain: root → ... → conclusion
+    const fwd = backwardCells.reverse();
+
+    // Step 3: "First link stays in cell" check
+    if (fwd.length >= 2 && fwd[0] === fwd[1]) {
+      return false;
+    }
+
+    // Step 4: Java lasso detection with delayed insertion
+    const firstCellIndex = fwd[0]; // = ci (premise)
+    const lassoSet = new Set<number>();
+    let lastCellIndex = -1;
+
+    for (let i = 0; i < fwd.length; i++) {
+      const newCellIndex = fwd[i];
+
+      // Check if this cell is already in the lasso set
+      if (lassoSet.has(newCellIndex)) {
+        return false; // lasso detected
+      }
+
+      // Add the PREVIOUS cell (delayed by 1 step)
+      // Skip if: first iteration (lastCellIndex == -1)
+      // Skip if: lastCellIndex == firstCellIndex (premise cell never added for nice loops)
+      if (lastCellIndex !== -1 && lastCellIndex !== firstCellIndex) {
+        lassoSet.add(lastCellIndex);
+      }
+
+      lastCellIndex = newCellIndex;
+    }
+
+    return true;
+  }
+
+  private _checkNiceLoops(tables: TableEntry[], grouped = false): SolutionStep | null {
     const s = this.sudoku;
     const isOnTables = tables === this._onTable;
 
@@ -785,37 +945,58 @@ export class TablingSolver extends AbstractSolver {
       if (d === 0 || s.values[ci] !== 0 || !s.isCandidate(ci, d)) continue;
 
       if (isOnTables) {
-        // ON premise (STRONG start): chain derived something back to start cell ci
-        // Case: onSets[d].has(ci) = last link STRONG, sameCand: Discontinuous, d must be placed
-        //   -> eliminate all other candidates from ci
-        if (entry.onSets[d].has(ci)) {
-          const dels: Candidate[] = s.getCandidates(ci)
-            .filter(d2 => d2 !== d)
-            .map(d2 => ({ index: ci, value: d2 as Digit }));
-          if (dels.length > 0) return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, dels);
+        // ON premise: firstLinkStrong = false (ON table initial entries are always WEAK/OFF)
+
+        // Java Case 1: offSets[d].has(ci), same cand, both weak → eliminate d
+        if (!grouped && entry.offSets[d].has(ci)) {
+          const dist = entry.minDistOff[ci * 10 + d];
+          if (dist > 2 && this._chainIsValid(entry, ci, d, false)) {
+            return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]);
+          }
         }
-        // Case: offSets[d2].has(ci) for d2 != d: last link WEAK, diffCand
-        //   H8: trivially true for all d2≠d (fillTables always adds them) so fires
-        //   spuriously on unique puzzles. Disable for uniquely-solvable puzzles.
-        if (!s.hasUniqueSolution()) {
+
+        // Java Case 3: onSets[d2≠d].has(ci), mixed polarity (weak start, strong end)
+        // → eliminate d (startCandidate, since firstLink is weak)
+        if (!grouped) {
           for (let d2 = 1; d2 <= 9; d2++) {
-            if (d2 !== d && entry.offSets[d2].has(ci) && s.isCandidate(ci, d2)) {
-              return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d2 as Digit }]);
+            if (d2 !== d && entry.onSets[d2].has(ci) && s.isCandidate(ci, d)) {
+              const dist = entry.minDistOn[ci * 10 + d2];
+              if (dist > 2 && this._chainIsValid(entry, ci, d2, true)) {
+                return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]);
+              }
             }
           }
         }
       } else {
-        // OFF premise (WEAK start): chain derived something back to start cell ci
-        // Case: offSets[d].has(ci) = last link WEAK, sameCand: Discontinuous
-        //   -> eliminate d from ci
-        if (entry.offSets[d].has(ci) && s.isCandidate(ci, d)) {
-          return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]);
+        // OFF premise: firstLinkStrong = true (OFF table initial entries are always STRONG/SET)
+
+        // Java Case 2: onSets[d].has(ci), same cand, both strong
+        // → eliminate ALL candidates except d from ci
+        if (!grouped && entry.onSets[d].has(ci)) {
+          const dist = entry.minDistOn[ci * 10 + d];
+          if (dist > 2 && this._chainIsValid(entry, ci, d, true)) {
+            const dels: Candidate[] = [];
+            for (let d2 = 1; d2 <= 9; d2++) {
+              if (d2 !== d && s.isCandidate(ci, d2)) {
+                dels.push({ index: ci, value: d2 as Digit });
+              }
+            }
+            if (dels.length > 0) {
+              return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, dels);
+            }
+          }
         }
-        // Case: onSets[d2].has(ci) for d2 != d: last link STRONG, diffCand
-        //   -> eliminate d (the weak/start candidate)
-        for (let d2 = 1; d2 <= 9; d2++) {
-          if (d2 !== d && entry.onSets[d2].has(ci) && s.isCandidate(ci, d)) {
-            return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]);
+
+        // Java Case 3: offSets[d2≠d].has(ci), mixed polarity (strong start, weak end)
+        // → eliminate d2 (endCandidate, since lastLink is weak)
+        if (!grouped) {
+          for (let d2 = 1; d2 <= 9; d2++) {
+            if (d2 !== d && entry.offSets[d2].has(ci) && s.isCandidate(ci, d2)) {
+              const dist = entry.minDistOff[ci * 10 + d2];
+              if (dist > 2 && this._chainIsValid(entry, ci, d2, false)) {
+                return _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d2 as Digit }]);
+              }
+            }
           }
         }
       }
@@ -823,10 +1004,10 @@ export class TablingSolver extends AbstractSolver {
     return null;
   }
 
-  // â”€â”€ checkAics() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── checkAics() ──────────────────────────────────────────────────────────
   //
   // AIC Type 1: offTable premise d in startCell, chain ends with d SET in
-  // endCell (endCell â‰  startCell, same candidate).  All common buddies of
+  // endCell (endCell ≠ startCell, same candidate).  All common buddies of
   // startCell and endCell that have candidate d can be eliminated.
   // ---------------------------------------------------------------------------
 
@@ -842,6 +1023,8 @@ export class TablingSolver extends AbstractSolver {
       // Type 1: find end cell in onSets[startCand]
       for (const endCell of entry.onSets[startCand]) {
         if (endCell === startCell) continue;
+        const distOn = entry.minDistOn[endCell * 10 + startCand];
+        if (distOn > 0 && distOn <= 2) continue;
         const dels: Candidate[] = [];
         for (const buddy of Sudoku2.BUDDIES[startCell]) {
           if (buddy !== endCell
@@ -850,7 +1033,7 @@ export class TablingSolver extends AbstractSolver {
             dels.push({ index: buddy, value: startCand as Digit });
           }
         }
-        // H11: Java requires ≥2 common buddies (1-buddy case already covered by Nice Loops).
+        // H11: Java requires =2 common buddies (1-buddy case already covered by Nice Loops).
         if (dels.length >= 2) return _step(SolutionType.AIC, dels);
       }
 
@@ -862,6 +1045,8 @@ export class TablingSolver extends AbstractSolver {
           if (!BUDDY_SETS[startCell].has(endCell)) continue;
           if (!s.isCandidate(endCell, startCand)) continue;
           if (!s.isCandidate(startCell, d2)) continue;
+          const distOn = entry.minDistOn[endCell * 10 + d2];
+          if (distOn > 0 && distOn <= 2) continue;
           return _step(SolutionType.AIC, [
             { index: endCell,   value: startCand as Digit },
             { index: startCell, value: d2 as Digit },
@@ -872,7 +1057,7 @@ export class TablingSolver extends AbstractSolver {
     return null;
   }
 
-  // â”€â”€ checkForcingChains() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── checkForcingChains() ─────────────────────────────────────────────────
 
   private _checkForcingChains(): SolutionStep | null {
     // 1. Single-chain contradictions
@@ -893,7 +1078,7 @@ export class TablingSolver extends AbstractSolver {
     return this._checkAllChainsForHouses();
   }
 
-  // â”€â”€ checkOneChain â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── checkOneChain ─────────────────────────────────────────────────────────
 
   private _checkOneChain(entry: TableEntry, isOn: boolean): SolutionStep | null {
     if (!entry.populated) return null;
@@ -904,8 +1089,8 @@ export class TablingSolver extends AbstractSolver {
     if (d === 0 || s.values[ci] !== 0 || !s.isCandidate(ci, d)) return null;
 
     const conclude = (): SolutionStep => isOn
-      ? _step(SolutionType.FORCING_CHAIN_CONTRADICTION, [{ index: ci, value: d as Digit }])   // ON was wrong → delete d
-      : _step(SolutionType.FORCING_CHAIN_CONTRADICTION, [], [{ index: ci, value: d as Digit }]); // OFF was wrong → set d
+      ? _step(SolutionType.FORCING_CHAIN_CONTRADICTION, [{ index: ci, value: d as Digit }])   // ON was wrong ? delete d
+      : _step(SolutionType.FORCING_CHAIN_CONTRADICTION, [], [{ index: ci, value: d as Digit }]); // OFF was wrong ? set d
 
     // Case 1: premise loops back to its inverse
     if (isOn && entry.offSets[d].has(ci)) return conclude();
@@ -953,7 +1138,7 @@ export class TablingSolver extends AbstractSolver {
       }
     }
 
-    // Case 6 (H12): some unsolved cell has ALL its candidates eliminated — contradiction.
+    // Case 6 (H12): some unsolved cell has ALL its candidates eliminated � contradiction.
     for (let cell = 0; cell < 81; cell++) {
       if (s.values[cell] !== 0) continue;
       const cands = s.getCandidates(cell);
@@ -964,7 +1149,7 @@ export class TablingSolver extends AbstractSolver {
     return null;
   }
 
-  // â”€â”€ checkTwoChains â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── checkTwoChains ────────────────────────────────────────────────────────
 
   private _checkTwoChains(on: TableEntry, off: TableEntry): SolutionStep | null {
     if (!on.populated || !off.populated) return null;
@@ -984,7 +1169,7 @@ export class TablingSolver extends AbstractSolver {
     return null;
   }
 
-  // â”€â”€ checkAllChainsForCells â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── checkAllChainsForCells ────────────────────────────────────────────────
 
   private _checkAllChainsForCells(): SolutionStep | null {
     const s = this.sudoku;
@@ -1000,7 +1185,7 @@ export class TablingSolver extends AbstractSolver {
     return null;
   }
 
-  // â”€â”€ checkAllChainsForHouses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── checkAllChainsForHouses ───────────────────────────────────────────────
 
   private _checkAllChainsForHouses(): SolutionStep | null {
     const s = this.sudoku;
@@ -1094,7 +1279,7 @@ function _netCountBits(mask: number): number {
 }
 
 function _netLowestBit(mask: number): number {
-  // Return lowest set bit ≥ 1 in a candidate bitmask.
+  // Return lowest set bit = 1 in a candidate bitmask.
   for (let d = 1; d <= 9; d++) if ((mask >> d & 1) !== 0) return d;
   return 0;
 }

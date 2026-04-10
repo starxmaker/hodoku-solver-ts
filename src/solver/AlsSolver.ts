@@ -314,6 +314,9 @@ export class AlsSolver extends AbstractSolver {
   // RC digits of the chain endpoint links) from cells seeing all instances.
   // Adjacency rule: two consecutive RCs in the chain must use different digits.
   // -------------------------------------------------------------------------
+  private _alsChainNodeCount = 0;
+  private static readonly ALS_CHAIN_MAX_NODES = 500_000;
+
   private _findAlsChain(): SolutionStep | null {
     const alses = this._collectAlses();
     const rcs   = this._collectRCs(alses);
@@ -349,6 +352,7 @@ export class AlsSolver extends AbstractSolver {
     const rcInfo: { d: number; d2: number }[] = [];  // RC info for each chain link
     const inChain = new Set<number>();
 
+    this._alsChainNodeCount = 0;
     for (let start = 0; start < alses.length; start++) {
       chain.length  = 0;
       rcInfo.length = 0;
@@ -374,6 +378,7 @@ export class AlsSolver extends AbstractSolver {
     adj:     Map<number, { j: number; d: number; d2: number }[]>,
   ): SolutionStep | null {
     if (chain.length > 50) return null; // H13A: Java MAX_RC=50 in getStep mode (was incorrectly 6)
+    if (++this._alsChainNodeCount > AlsSolver.ALS_CHAIN_MAX_NODES) return null;
 
     for (const { j, d, d2 } of (adj.get(cur) ?? [])) {
       if (entryD !== 0 && d === entryD) continue; // adjacency rule
