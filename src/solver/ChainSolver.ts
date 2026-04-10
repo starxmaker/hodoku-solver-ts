@@ -162,15 +162,15 @@ export class ChainSolver extends AbstractSolver {
       if (values[i] === 0 && this.sudoku.candidateCount(i) === 2) biCells.push(i);
     }
 
-    // H16: collect globally shortest chain across all starts (mirrors Java sort-by-length).
-    // Use an object wrapper so TypeScript's narrowing works through closure mutations.
-    const state: { best: { del: Candidate[]; len: number } | null } = { best: null };
+    // Collect ALL valid XY chains, dedup by elimination key (keep shorter chain).
+    // Then sort by Java's compareTo: more elims DESC, shorter chain, index sum.
+    const deletesMap = new Map<string, { del: Candidate[]; chainLen: number }>();
 
     const dfs = (
       cell: number, curD: number, startD: number,
       chain: number[], visited: Set<number>,
     ): void => {
-      if (chain.length >= (state.best?.len ?? 20)) return; // H16: prune
+      if (chain.length >= 20) return; // max chain length (Java RESTRICT_CHAIN_LENGTH)
       for (const next of biCells) {
         if (visited.has(next)) continue;
         if (!(candidates[next] & (1 << curD))) continue;
@@ -188,8 +188,12 @@ export class ChainSolver extends AbstractSolver {
         // Check: if chain has >=3 nodes and exitD === startD, we have a valid chain
         if (chain.length >= 3 && exitD === startD) {
           const del = _commonBuddyElims(chain[0], next, startD, values, candidates, BUDDIES);
-          if (del.length && (!state.best || chain.length < state.best.len)) {
-            state.best = { del, len: chain.length };
+          if (del.length) {
+            const key = _elimKey(del);
+            const existing = deletesMap.get(key);
+            if (!existing || chain.length < existing.chainLen) {
+              deletesMap.set(key, { del: [...del], chainLen: chain.length });
+            }
           }
         }
 
@@ -208,14 +212,21 @@ export class ChainSolver extends AbstractSolver {
 
       // Try each starting candidate as the "entry" candidate at start
       for (const [entryD, exitD] of [[sc1, sc2], [sc2, sc1]] as [number, number][]) {
-        // Start: we "enter" with entryD, which means entryD is false at start.
-        // So we exit with exitD (strong within-cell link).
         dfs(start, exitD, entryD, [start], new Set([start]));
       }
     }
-    const best = state.best;
-    if (!best) return null;
-    return { type: SolutionType.XY_CHAIN, placements: [], candidatesToDelete: best.del };
+    if (deletesMap.size === 0) return null;
+
+    // Sort by Java's compareTo: more elims DESC, shorter chain, index sum
+    const results = [...deletesMap.values()];
+    results.sort((a, b) => {
+      const elimDiff = b.del.length - a.del.length;
+      if (elimDiff !== 0) return elimDiff;
+      const chainDiff = a.chainLen - b.chainLen;
+      if (chainDiff !== 0) return chainDiff;
+      return _indexSum(a.del) - _indexSum(b.del);
+    });
+    return { type: SolutionType.XY_CHAIN, placements: [], candidatesToDelete: results[0].del };
   }
 
   // ── Remote Pair ────────────────────────────────────────────────────────────
@@ -324,4 +335,21 @@ function _commonBuddyElims(
     del.push({ index: cell, value: d as Digit });
   }
   return del;
+}
+
+/** Build a dedup key from an elimination set (sorted cell/value pairs). */
+function _elimKey(del: Candidate[]): string {
+  return del.map(c => `${c.index}/${c.value}`).sort().join(',');
+}
+
+/** Java's getIndexSumme — deterministic tiebreaker for sorted candidatesToDelete. */
+function _indexSum(del: Candidate[]): number {
+  const sorted = [...del].sort((a, b) => a.value - b.value || a.index - b.index);
+  let sum = 0;
+  let offset = 1;
+  for (const c of sorted) {
+    sum += c.index * offset + c.value;
+    offset += 80;
+  }
+  return sum;
 }

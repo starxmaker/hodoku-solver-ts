@@ -929,6 +929,244 @@ export class TablingSolver extends AbstractSolver {
     return firstAfterPremise !== ci;
   }
 
+  /**
+   * Validate an AIC chain for lassos. Reconstructs the chain from parent
+   * pointers and checks Java's lasso rules:
+   * - For AICs, ALL cells (including the first cell) are added to the lasso set
+   *   with a 1-step delay
+   * - If any cell appears in the lasso set, the chain is rejected
+   * - Also checks first-link-stays-in-cell
+   */
+  private _aicIsValid(entry: TableEntry, endCell: number, endD: number, endIsOn: boolean): boolean {
+    const premiseCell = (entry.tableIndex / 10) | 0;
+    const premiseCand = entry.tableIndex % 10;
+
+    // Build forward chain from parent pointers
+    const backward: number[] = [endCell]; // cell sequence in backward order
+    let curCell = endCell, curD = endD, curIsOn = endIsOn;
+    for (let steps = 0; steps < 200; steps++) {
+      const k = curCell * 10 + curD;
+      const par = curIsOn ? entry.retOn[k] : entry.retOff[k];
+      if (par === -1) break;
+      const pc = (par / 20) | 0;
+      backward.push(pc);
+      curCell = pc;
+      curD = ((par % 20) >> 1);
+      curIsOn = (par & 1) === 1;
+    }
+    backward.push(premiseCell);
+    // Reverse to get forward order
+    backward.reverse();
+    if (backward.length < 4) return false; // chain too short
+
+    // Check first link stays in cell
+    if (backward[0] === backward[1]) return false;
+
+    // Java AIC lasso detection: walk forward, add cells to lasso set with 1-step delay
+    // For AICs, the first cell IS added to the lasso set (unlike nice loops)
+    const lassoSet = new Set<number>();
+    let lastCell = -1;
+    for (let i = 0; i < backward.length; i++) {
+      const cell = backward[i];
+      if (lassoSet.has(cell)) return false; // lasso detected
+      if (lastCell !== -1) {
+        // For AICs: always add (no firstCell exemption)
+        lassoSet.add(lastCell);
+      }
+      lastCell = cell;
+    }
+    return true;
+  }
+
+  /**
+   * Reconstruct a chain by tracing parent pointers from (endCell, endD, endIsOn)
+   * back to the premise, then reversing to forward order.
+   * Returns array of {cell, d, isOn} or null if chain is invalid.
+   */
+  private _reconstructChain(
+    entry: TableEntry, endCell: number, endD: number, endIsOn: boolean,
+    premiseCell: number, premiseCand: number,
+  ): { cell: number; d: number; isOn: boolean }[] | null {
+    const backward: { cell: number; d: number; isOn: boolean }[] = [
+      { cell: endCell, d: endD, isOn: endIsOn },
+    ];
+    let curCell = endCell, curD = endD, curIsOn = endIsOn;
+    for (let steps = 0; steps < 200; steps++) {
+      const k = curCell * 10 + curD;
+      const par = curIsOn ? entry.retOn[k] : entry.retOff[k];
+      if (par === -1) break; // reached premise
+      const pc = (par / 20) | 0;
+      const pd = ((par % 20) >> 1);
+      const pIsOn = (par & 1) === 1;
+      backward.push({ cell: pc, d: pd, isOn: pIsOn });
+      curCell = pc;
+      curD = pd;
+      curIsOn = pIsOn;
+    }
+    backward.push({ cell: premiseCell, d: premiseCand, isOn: !entry.isOn });
+    backward.reverse();
+    if (backward.length < 4) return null; // too short
+    return backward;
+  }
+
+  /**
+   * Compute CNL eliminations by walking the reconstructed chain.
+   * Java's rules:
+   * - Cell entered and left with strong links → eliminate all other candidates
+   * - Weak link between cells → eliminate candidate from common buddies
+   */
+  private _cnlEliminations(
+    chain: { cell: number; d: number; isOn: boolean }[],
+    premiseCell: number, premiseCand: number, endCand: number,
+    firstLinkStrong: boolean, lastLinkStrong: boolean,
+  ): Candidate[] {
+    const s = this.sudoku;
+    const delSet = new Set<string>();
+    const dels: Candidate[] = [];
+    const addDel = (cell: number, cand: number) => {
+      const key = `${cell}/${cand}`;
+      if (!delSet.has(key) && s.isCandidate(cell, cand)) {
+        delSet.add(key);
+        dels.push({ index: cell, value: cand as Digit });
+      }
+    };
+
+    // The chain starts at premiseCell. In Java's nlChain representation:
+    // nlChain[0] = start node  (premise)
+    // nlChain[1] = weak within cell or strong to next
+    // ...
+    // nlChain[nlChainIndex] = end node that connects back to premise
+    //
+    // For our chain array:
+    // chain[0] = premise (cell, cand, isOn)
+    // chain[1..n-1] = intermediate nodes (alternating on/off)
+    // chain[n-1] = end node
+    //
+    // isOn in our chain: true = SET (strong), false = DELETE (weak)
+    //
+    // Walk pairs: for each node, check if it's part of a strong-strong pattern
+    // or a weak between-cell link.
+
+    const n = chain.length;
+
+    // Build link strength array: link[i] represents the link arriving at chain[i]
+    // In Java terms: chain[i].isStrong means the link TO that node is strong
+    // For our BFS: isOn=true → SET, means the link is strong
+    //              isOn=false → DELETE, means the link is weak
+    // But this isn't exactly right. Let me think about it differently.
+    //
+    // Java's isSStrong(nlChain[i]): means the link arriving at node i is strong
+    // In our representation:
+    //   chain[0].isOn: represents the premise state (ON table → premise is ON, OFF table → premise is OFF)
+    //   For subsequent nodes: isOn means "this candidate is SET in this cell" (strong arrival)
+    //                         !isOn means "this candidate is DELETED from this cell" (weak arrival)
+    //
+    // For ON table: premise starts strong=false (firstLink is weak/OFF)
+    //   chain[0] = {cell: premiseCell, d: premiseCand, isOn: false} (deleted)
+    //   To have offSets hit: chain ends with isOn=false → lastLink is weak
+    //   To have onSets hit: chain ends with isOn=true → lastLink is strong
+    //
+    // For OFF table: premise starts strong=true (firstLink is strong/ON)
+    //   chain[0] = {cell: premiseCell, d: premiseCand, isOn: true} (set)
+    //   To have onSets hit: chain ends with isOn=true → lastLink is strong
+    //   To have offSets hit: chain ends with isOn=false → lastLink is weak
+
+    // Check strong-strong cells:
+    // Start cell: if firstLinkStrong && lastLinkStrong
+    if (firstLinkStrong && lastLinkStrong) {
+      const c1 = premiseCand;
+      const c2 = endCand;
+      for (let d2 = 1; d2 <= 9; d2++) {
+        if (d2 !== c1 && d2 !== c2) addDel(premiseCell, d2);
+      }
+    }
+
+    // Interior nodes: for i from 1 to n-2
+    // A node entered with strong link and left with strong link → the cell has
+    // two strong link partners.
+    // In our chain: chain[i].isOn = strong arrival
+    // chain[i+1] must be in same cell (weak within cell), then chain[i+2] must have strong (isOn=true)
+    // and be in a different cell
+    for (let i = 1; i <= n - 3; i++) {
+      if (!chain[i].isOn) continue; // arrival must be strong
+      if (chain[i + 1].cell !== chain[i].cell) continue; // next must be same cell (within-cell link)
+      if (!chain[i + 1].isOn) {
+        // chain[i+1] is weak (delete) within cell — this is the within-cell weak link
+        if (i + 2 < n && chain[i + 2].isOn && chain[i + 2].cell !== chain[i + 1].cell) {
+          // Strong departure from this cell
+          const c1 = chain[i].d;
+          const c2 = chain[i + 2].d; // the strong link leaving goes to next cell with this candidate
+          // Wait: actually c2 should be the candidate of chain[i+1] since that's the departure link
+          // Java: c1 = Chain.getSCandidate(nlChain[i]), c2 = Chain.getSCandidate(nlChain[i+2])
+          // nlChain[i] has the candidate arriving, nlChain[i+2] has the candidate leaving
+          // But in our reconstruction, the candidates at chain[i] and chain[i+1] are different
+          // because we have within-cell link
+          const cellCand1 = chain[i].d;
+          const cellCand2 = chain[i + 1].d;
+          for (let d2 = 1; d2 <= 9; d2++) {
+            if (d2 !== cellCand1 && d2 !== cellCand2) addDel(chain[i].cell, d2);
+          }
+        }
+      }
+    }
+
+    // Check weak between-cell links:
+    // A weak link between cells at node i: !isOn (weak arrival) and different cell from previous
+    for (let i = 1; i < n; i++) {
+      if (chain[i].isOn) continue; // must be weak arrival
+      if (chain[i].cell === chain[i - 1].cell) continue; // must be between cells
+      const actCand = chain[i].d;
+      // Eliminate actCand from common buddies of chain[i-1].cell and chain[i].cell
+      for (const buddy of Sudoku2.BUDDIES[chain[i - 1].cell]) {
+        if (buddy !== premiseCell
+            && BUDDY_SETS[chain[i].cell].has(buddy)
+            && buddy !== chain[i - 1].cell
+            && buddy !== chain[i].cell) {
+          addDel(buddy, actCand);
+        }
+      }
+    }
+
+    // Also handle weak link from last node back to start (the closing link)
+    // The closing link connects chain[n-1] to chain[0] (premiseCell)
+    // If last link is weak (and between cells):
+    if (!lastLinkStrong && chain[n - 1].cell !== premiseCell) {
+      const actCand = premiseCand; // the weak link back carries the premise candidate? No...
+      // Actually, in a CNL, every link alternates. If the last link is weak,
+      // it means the connection from chain[n-1] to premiseCell is weak.
+      // For the closing link, the candidate is endCand (which equals the candidate at chain[n-1].d
+      // for the arrival, or premiseCand for the departure)
+      // Let me reconsider: the closing link goes from the end to the premise.
+      // Its candidate depends on the type of CNL.
+      // For (!firstStrong && !lastStrong && bivalue && startCand!=endCand):
+      //   The closing weak link carries endCand back to premiseCell.
+      // For (firstStrong != lastStrong && startCand == endCand):
+      //   If firstStrong && !lastStrong: the closing weak link carries startCand
+      const closingCand = endCand;
+      for (const buddy of Sudoku2.BUDDIES[chain[n - 1].cell]) {
+        if (buddy !== premiseCell
+            && BUDDY_SETS[premiseCell].has(buddy)
+            && buddy !== chain[n - 1].cell) {
+          addDel(buddy, closingCand);
+        }
+      }
+    }
+
+    // And if first link is weak (between cells):
+    if (!firstLinkStrong && chain[1].cell !== premiseCell) {
+      const actCand = chain[1].d;
+      for (const buddy of Sudoku2.BUDDIES[premiseCell]) {
+        if (buddy !== premiseCell
+            && BUDDY_SETS[chain[1].cell].has(buddy)
+            && buddy !== chain[1].cell) {
+          addDel(buddy, actCand);
+        }
+      }
+    }
+
+    return dels;
+  }
+
   private _collectNiceLoops(tables: TableEntry[], grouped: boolean, out: _StepCandidate[]): void {
     const s = this.sudoku;
     const isOnTables = tables === this._onTable;
@@ -959,6 +1197,41 @@ export class TablingSolver extends AbstractSolver {
               const dist = entry.minDistOn[ci * 10 + d2];
               if (dist > 2 && this._chainIsValid(entry, ci, d2, true)) {
                 out.push({ step: _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]), dist });
+              }
+            }
+          }
+        }
+
+        // CNL cases for ON table (firstLinkStrong = false):
+
+        // CNL-A: offSets[d2≠d].has(ci), both weak, different cand, bivalue cell
+        // Java: (!firstLinkStrong && !lastLinkStrong && getAnzCandidates(ci)==2 && startCand!=endCand)
+        for (let d2 = 1; d2 <= 9; d2++) {
+          if (d2 !== d && entry.offSets[d2].has(ci) && s.isCandidate(ci, d2)
+              && s.getCandidates(ci).length === 2) {
+            const dist = entry.minDistOff[ci * 10 + d2];
+            if (dist > 2 && this._chainIsValid(entry, ci, d2, false)) {
+              const chain = this._reconstructChain(entry, ci, d2, false, ci, d);
+              if (chain) {
+                const dels = this._cnlEliminations(chain, ci, d, d2, false, false);
+                if (dels.length > 0) {
+                  out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                }
+              }
+            }
+          }
+        }
+
+        // CNL-B: onSets[d].has(ci), mixed polarity (weak start, strong end), same cand
+        // Java: (firstLinkStrong != lastLinkStrong && startCand == endCand) → firstStrong=false, lastStrong=true
+        if (entry.onSets[d].has(ci)) {
+          const dist = entry.minDistOn[ci * 10 + d];
+          if (dist > 2 && this._chainIsValid(entry, ci, d, true)) {
+            const chain = this._reconstructChain(entry, ci, d, true, ci, d);
+            if (chain) {
+              const dels = this._cnlEliminations(chain, ci, d, d, false, true);
+              if (dels.length > 0) {
+                out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
               }
             }
           }
@@ -995,6 +1268,40 @@ export class TablingSolver extends AbstractSolver {
             }
           }
         }
+
+        // CNL cases for OFF table (firstLinkStrong = true):
+
+        // CNL-C: offSets[d].has(ci), mixed polarity (strong start, weak end), same cand
+        // Java: (firstLinkStrong != lastLinkStrong && startCand == endCand) → firstStrong=true, lastStrong=false
+        if (entry.offSets[d].has(ci)) {
+          const dist = entry.minDistOff[ci * 10 + d];
+          if (dist > 2 && this._chainIsValid(entry, ci, d, false)) {
+            const chain = this._reconstructChain(entry, ci, d, false, ci, d);
+            if (chain) {
+              const dels = this._cnlEliminations(chain, ci, d, d, true, false);
+              if (dels.length > 0) {
+                out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+              }
+            }
+          }
+        }
+
+        // CNL-D: onSets[d2≠d].has(ci), both strong, different cand
+        // Java: (firstLinkStrong && lastLinkStrong && startCand != endCand)
+        for (let d2 = 1; d2 <= 9; d2++) {
+          if (d2 !== d && entry.onSets[d2].has(ci)) {
+            const dist = entry.minDistOn[ci * 10 + d2];
+            if (dist > 2 && this._chainIsValid(entry, ci, d2, true)) {
+              const chain = this._reconstructChain(entry, ci, d2, true, ci, d);
+              if (chain) {
+                const dels = this._cnlEliminations(chain, ci, d, d2, true, true);
+                if (dels.length > 0) {
+                  out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                }
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -1020,6 +1327,7 @@ export class TablingSolver extends AbstractSolver {
         if (endCell === startCell) continue;
         const distOn = entry.minDistOn[endCell * 10 + startCand];
         if (distOn > 0 && distOn <= 2) continue;
+        if (!this._aicIsValid(entry, endCell, startCand, true)) continue;
         const dels: Candidate[] = [];
         for (const buddy of Sudoku2.BUDDIES[startCell]) {
           if (buddy !== endCell
@@ -1042,6 +1350,7 @@ export class TablingSolver extends AbstractSolver {
           if (!s.isCandidate(startCell, d2)) continue;
           const distOn = entry.minDistOn[endCell * 10 + d2];
           if (distOn > 0 && distOn <= 2) continue;
+          if (!this._aicIsValid(entry, endCell, d2, true)) continue;
           out.push({
             step: _step(SolutionType.AIC, [
               { index: endCell,   value: startCand as Digit },
