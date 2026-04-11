@@ -62,21 +62,17 @@ export class SingleDigitPatternSolver extends AbstractSolver {
   // that share one column (or row). The unshared ends form the elimination.
 
   private _findSkyscraper(): SolutionStep | null {
-    for (let d = 1; d <= 9; d++) {
-      const only2 = this._only2(d);
-      // Try row-base (houses 0-8) paired by shared column, and col-base (9-17) by shared row
-      for (const [base1Start, base1End, crossOff] of [[0, 9, 9], [9, 18, 0]] as [number, number, number][]) {
-        // col-offset: for row-base rows are 0-8 and crossing lines are cols 9-17
-        //             for col-base cols are 9-17 and crossing lines are rows 0-8
+    // Java first searches all row-based skyscrapers (digits 1-9), then all col-based.
+    // We must match that orientation-first order, not interleave rows/cols per digit.
+    for (const [base1Start, base1End] of [[0, 9], [9, 18]] as [number, number][]) {
+      for (let d = 1; d <= 9; d++) {
+        const only2 = this._only2(d);
         for (let h1 = base1Start; h1 < base1End; h1++) {
           const pair1 = only2[h1]; if (!pair1) continue;
           for (let h2 = h1 + 1; h2 < base1End; h2++) {
             const pair2 = only2[h2]; if (!pair2) continue;
 
-            // The two pairs must share exactly one crossing line
-            // For row-base: same column for one cell in each pair
             const cross = (c: number) => base1Start === 0 ? Sudoku2.col(c) : Sudoku2.row(c);
-
             const c1a = cross(pair1[0]), c1b = cross(pair1[1]);
             const c2a = cross(pair2[0]), c2b = cross(pair2[1]);
 

@@ -310,7 +310,7 @@ export class TablingSolver extends AbstractSolver {
     const groups = collectGroupNodes(this.sudoku);
     if (groups.length === 0) return null;
 
-    // H4: Java ALLOW_ALS_IN_TABLING_CHAINS=false by default � no ALS expansion for grouped loops.
+    // H4: Java ALLOW_ALS_IN_TABLING_CHAINS=false by default - no ALS expansion for grouped loops.
     this._groupImplicationFired = false;
     this._fillTables();
     this._expandTablesWithGroups(this._onTable, this._offTable, groups);
@@ -323,8 +323,8 @@ export class TablingSolver extends AbstractSolver {
     this._collectAics(this._offTable, candidates);
     if (candidates.length === 0) return null;
     candidates.sort(_compareSteps);
-    const step = candidates[0].step;
 
+    const step = candidates[0].step;
     if (step.type === SolutionType.DISCONTINUOUS_NICE_LOOP)
       return { ...step, type: SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP };
     if (step.type === SolutionType.CONTINUOUS_NICE_LOOP)
@@ -333,7 +333,6 @@ export class TablingSolver extends AbstractSolver {
       return { ...step, type: SolutionType.GROUPED_AIC };
     return { ...step, type: SolutionType.GROUPED_NICE_LOOP };
   }
-
   // -- expandTablesWithGroups() ------------------------------------------------
   //
   // Same BFS as _expandTables() but with an extra "group-OFF" check:
@@ -469,7 +468,7 @@ export class TablingSolver extends AbstractSolver {
             for (const g of groupsByDigit[d]) {
               if (g.cells.includes(c)) continue;
               if (!g.cells.every(gc => Sudoku2.BUDDIES[gc].includes(c))) continue;
-              const gOffDist = dist + 1;
+              const gOffDist = dist + 2;
               for (const hIdx of [
                 ...(g.row >= 0 ? [g.row] : []),
                 ...(g.col >= 0 ? [9 + g.col] : []),
@@ -527,7 +526,7 @@ export class TablingSolver extends AbstractSolver {
                   hc => !g.cells.includes(hc) && s.values[hc] === 0 && s.isCandidate(hc, d),
                 );
                 if (staticRem.length === 1 && staticRem[0] === c) {
-                  const gTriggeredDist = dist + 1;
+                  const gTriggeredDist = dist + 2;
                   const gBuddies = g.cells.reduce(
                     (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
                     [...Sudoku2.BUDDIES[g.cells[0]]],
@@ -565,7 +564,7 @@ export class TablingSolver extends AbstractSolver {
                   // c2 must actually see ALL cells of the group to trigger GROUP OFF.
                   if (!g.cells.every(gc => Sudoku2.BUDDIES[gc].includes(c2))) continue;
                   // GROUP G is OFF: for each house of G, find solo non-group cell.
-                  const gOffDist = newDist + 1;
+                  const gOffDist = newDist + 2;
                   const c2Enc = c2 * 20 + d2 * 2 + 1; // c2 ON for d2
                   for (const hIdx of [
                     ...(g.row >= 0 ? [g.row] : []),
@@ -639,7 +638,7 @@ export class TablingSolver extends AbstractSolver {
                       );
                       if (staticRem.length === 1 && staticRem[0] === c2) {
                         // G forced ON - delete d2 from cells that see all of G.
-                        const gTriggeredDist = newDist + 1;
+                        const gTriggeredDist = newDist + 2;
                         // Use full BUDDIES intersection to match Java GroupNode.buddies.
                         const gBuddies = g.cells.reduce(
                           (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
@@ -1892,6 +1891,15 @@ function _indexSum(dels: Candidate[]): number {
   return sum;
 }
 
+function _candidateSetsEqual(a: Candidate[], b: Candidate[]): boolean {
+  if (a.length !== b.length) return false;
+  // Set-based check matching Java's isEqualCandidate (order-independent)
+  for (const ca of a) {
+    if (!b.some(cb => cb.index === ca.index && cb.value === ca.value)) return false;
+  }
+  return true;
+}
+
 function _compareSteps(a: _StepCandidate, b: _StepCandidate): number {
   // More eliminations first (descending)
   const delDiff = b.step.candidatesToDelete.length - a.step.candidatesToDelete.length;
@@ -1913,6 +1921,37 @@ function _compareSteps(a: _StepCandidate, b: _StepCandidate): number {
   }
 
   // Equivalent: shorter chain first
+  return a.dist - b.dist;
+}
+
+/**
+ * Comparison for grouped nice loop candidates — matches Java's TablingComparator exactly:
+ * 1. More eliminations first
+ * 2. If not isEquivalent (set-based): compare candidates position-by-position (ci*10+d), then chain
+ * 3. If equivalent: shorter chain first
+ */
+function _compareGroupedSteps(a: _StepCandidate, b: _StepCandidate): number {
+  // More eliminations first (descending)
+  const delDiff = b.step.candidatesToDelete.length - a.step.candidatesToDelete.length;
+  if (delDiff !== 0) return delDiff;
+
+  const ad = a.step.candidatesToDelete;
+  const bd = b.step.candidatesToDelete;
+
+  // Set-based equivalency (matches Java's isEquivalent: same type + same candidate set)
+  const equiv = a.step.type === b.step.type && _candidateSetsEqual(ad, bd);
+
+  if (!equiv) {
+    // Not equivalent: compare candidates position-by-position (like Java's compareCandidatesToDelete)
+    for (let i = 0; i < Math.min(ad.length, bd.length); i++) {
+      const cmp = (ad[i].index * 10 + ad[i].value) - (bd[i].index * 10 + bd[i].value);
+      if (cmp !== 0) return cmp;
+    }
+    const lenDiff = ad.length - bd.length;
+    if (lenDiff !== 0) return lenDiff;
+  }
+
+  // Equivalent or same candidates: shorter chain first
   return a.dist - b.dist;
 }
 
