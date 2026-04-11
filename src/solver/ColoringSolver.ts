@@ -156,58 +156,77 @@ export class ColoringSolver extends AbstractSolver {
     const { values, candidates } = this.sudoku;
     const BUDDIES = Sudoku2.BUDDIES;
 
+    // Java accumulates victims from ALL 4 link conditions per (i,j) pair into ONE step.
+    // Collect all such combined steps, sort by most-elims, return best.
+    const mc1Steps: Candidate[][] = [];
+
     for (let d = 1; d <= 9; d++) {
       const components = this._buildComponents(d);
 
-      // H15 Bug B: use ordered pairs (i,j) with i≠j so component[j] halves can also be eliminated.
       for (let i = 0; i < components.length; i++) {
         for (let j = 0; j < components.length; j++) {
           if (j === i) continue;
           const [a0, a1] = components[i];
           const [b0, b1] = components[j];
 
-          // Try all 4 orientation combos of the two components
-          for (const [colorA, oppA] of [[a0, a1], [a1, a0]] as [number[], number[]][]) {
-            for (const [colorB, oppB] of [[b0, b1], [b1, b0]] as [number[], number[]][]) {
-              // H15 Bug A: Type 2 check — DIFFERENT cells of colorA may each see one half.
-              // Java only requires the combined set to see colorB AND oppB.
-              const seesAnyColorB = colorA.some(cA => colorB.some(cB => BUDDIES[cA].includes(cB)));
-              const seesAnyOppB   = colorA.some(cA => oppB.some(cOpp => BUDDIES[cA].includes(cOpp)));
-              if (seesAnyColorB && seesAnyOppB) {
-                const del: Candidate[] = colorA
-                  .filter(c => values[c] === 0 && (candidates[c] & (1 << d)))
-                  .map(c => ({ index: c, value: d as Digit }));
-                if (del.length) {
-                  if (requestedType === SolutionType.MULTI_COLORS_1) continue;
-                  return { type: SolutionType.MULTI_COLORS_2, placements: [], candidatesToDelete: del };
-                }
+          // Type 2 (MULTI_COLORS_2): if colorA sees BOTH halves of component j,
+          // eliminate colorA. Java combines set11 and set12 checks into one step;
+          // TS returns on first valid check for simplicity (first-found wins for Type 2).
+          if (requestedType !== SolutionType.MULTI_COLORS_1) {
+            // Java: checkMultiColor1(set11, set21, set22) → eliminate set11
+            //       checkMultiColor1(set12, set21, set22) → eliminate set12
+            // Combined into one globalStep.
+            const del2: Candidate[] = [];
+            const checkType2 = (colorA: number[]) => {
+              const seesB0 = colorA.some(cA => b0.some(cB => BUDDIES[cA].includes(cB)));
+              const seesB1 = colorA.some(cA => b1.some(cB => BUDDIES[cA].includes(cB)));
+              if (seesB0 && seesB1) {
+                colorA.filter(c => values[c] === 0 && (candidates[c] & (1 << d)))
+                  .forEach(c => del2.push({ index: c, value: d as Digit }));
               }
-
-              // Type 1: some cell of colorA sees some cell of colorB.
-              // Then oppA and oppB can't both be false, so cells seeing
-              // BOTH oppA and oppB can have d eliminated.
-              const hasLink = colorA.some(cA => colorB.some(cB => BUDDIES[cA].includes(cB)));
-              if (hasLink) {
-                const del: Candidate[] = [];
-                for (let cell = 0; cell < 81; cell++) {
-                  if (values[cell] !== 0) continue;
-                  if (!(candidates[cell] & (1 << d))) continue;
-                  const buddies = BUDDIES[cell];
-                  if (oppA.some(c => buddies.includes(c)) &&
-                      oppB.some(c => buddies.includes(c))) {
-                    del.push({ index: cell, value: d as Digit });
-                  }
-                }
-                if (del.length) {
-                  if (requestedType === SolutionType.MULTI_COLORS_2) continue;
-                  return { type: SolutionType.MULTI_COLORS_1, placements: [], candidatesToDelete: del };
-                }
-              }
+            };
+            checkType2(a0);
+            checkType2(a1);
+            if (del2.length) {
+              return { type: SolutionType.MULTI_COLORS_2, placements: [], candidatesToDelete: del2 };
             }
+          }
+
+          // Type 1 (MULTI_COLORS_1): some colorA cell sees some colorB cell (link).
+          // Victims: cells seeing BOTH oppA AND oppB.
+          // Java checks all 4 link combos per (i,j) pair and accumulates into ONE step.
+          if (requestedType !== SolutionType.MULTI_COLORS_2) {
+            const del1: Candidate[] = [];
+            const seen1 = new Set<number>();
+
+            const addVictims = (oppA: number[], oppB: number[]) => {
+              for (let cell = 0; cell < 81; cell++) {
+                if (values[cell] !== 0 || !(candidates[cell] & (1 << d)) || seen1.has(cell)) continue;
+                const buddies = BUDDIES[cell];
+                if (oppA.some(c => buddies.includes(c)) && oppB.some(c => buddies.includes(c))) {
+                  seen1.add(cell);
+                  del1.push({ index: cell, value: d as Digit });
+                }
+              }
+            };
+
+            // Java: if checkMultiColor2(set11,set21) → checkCandidateToDelete(set12,set22)
+            if (a0.some(cA => b0.some(cB => BUDDIES[cA].includes(cB)))) addVictims(a1, b1);
+            // Java: if checkMultiColor2(set11,set22) → checkCandidateToDelete(set12,set21)
+            if (a0.some(cA => b1.some(cB => BUDDIES[cA].includes(cB)))) addVictims(a1, b0);
+            // Java: if checkMultiColor2(set12,set21) → checkCandidateToDelete(set11,set22)
+            if (a1.some(cA => b0.some(cB => BUDDIES[cA].includes(cB)))) addVictims(a0, b1);
+            // Java: if checkMultiColor2(set12,set22) → checkCandidateToDelete(set11,set21)
+            if (a1.some(cA => b1.some(cB => BUDDIES[cA].includes(cB)))) addVictims(a0, b0);
+
+            if (del1.length) mc1Steps.push(del1);
           }
         }
       }
     }
-    return null;
+
+    if (mc1Steps.length === 0) return null;
+    mc1Steps.sort((a, b) => b.length - a.length);
+    return { type: SolutionType.MULTI_COLORS_1, placements: [], candidatesToDelete: mc1Steps[0] };
   }
 }

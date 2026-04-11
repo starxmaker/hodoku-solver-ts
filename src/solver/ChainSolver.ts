@@ -61,8 +61,10 @@ export class ChainSolver extends AbstractSolver {
     const { values, candidates } = this.sudoku;
     const BUDDIES = Sudoku2.BUDDIES;
     const HOUSES = Sudoku2.HOUSES;
-    // H16: search all digits/starts and return globally shortest chain (mirrors Java sort-by-length).
-    let globalBest: { del: Candidate[]; len: number } | null = null;
+
+    // Collect ALL valid X-Chain steps, dedup by elimination key (keep shorter chain).
+    // Sort by Java's compareTo: more elims DESC, shorter chain, index sum ASC.
+    const deletesMap = new Map<string, { del: Candidate[]; chainLen: number }>();
 
     for (let d = 1; d <= 9; d++) {
       // Build strong links: pairs of cells with exactly 2 occurrences in a house
@@ -81,47 +83,49 @@ export class ChainSolver extends AbstractSolver {
         strongAdj.get(b)!.add(a);
       }
 
-      // DFS: start from each cell in a strong link.
-      // Chain alternates: strong, weak, strong, weak, ...
-      // Chain must end on a strong link (length >= 3).
       for (const startCell of strongAdj.keys()) {
-        const result = this._xChainDFS(d, startCell, strongAdj, values, candidates, BUDDIES,
-          globalBest?.len ?? 20);
-        if (result && (!globalBest || result.len < globalBest.len)) {
-          globalBest = result;
-        }
+        this._xChainCollect(d, startCell, strongAdj, values, candidates, BUDDIES, deletesMap);
       }
     }
-    return globalBest
-      ? { type: SolutionType.X_CHAIN, placements: [], candidatesToDelete: globalBest.del }
-      : null;
+
+    if (deletesMap.size === 0) return null;
+
+    const results = [...deletesMap.values()];
+    results.sort((a, b) => {
+      const elimDiff = b.del.length - a.del.length;
+      if (elimDiff !== 0) return elimDiff;
+      const chainDiff = a.chainLen - b.chainLen;
+      if (chainDiff !== 0) return chainDiff;
+      return _indexSum(a.del) - _indexSum(b.del);
+    });
+    return { type: SolutionType.X_CHAIN, placements: [], candidatesToDelete: results[0].del };
   }
 
-  private _xChainDFS(
+  private _xChainCollect(
     d: number, start: number,
     strongAdj: Map<number, Set<number>>,
     values: number[], candidates: number[],
     BUDDIES: readonly (readonly number[])[],
-    maxLen: number, // H16: globally best chain length so far (prune threshold)
-  ): { del: Candidate[]; len: number } | null {
+    deletesMap: Map<string, { del: Candidate[]; chainLen: number }>,
+  ): void {
     const chain: number[] = [start];
     const visited = new Set<number>([start]);
-    let best: { del: Candidate[]; len: number } | null = null;
 
     const dfs = (cell: number, nextIsStrong: boolean): void => {
-      const cap = best ? best.len : maxLen;
-      if (chain.length >= cap) return; // H16: prune branches longer than current best
+      if (chain.length >= 20) return; // Java RESTRICT_CHAIN_LENGTH
       if (nextIsStrong) {
-        // Next link must be a strong link
         for (const next of (strongAdj.get(cell) ?? [])) {
           if (visited.has(next)) continue;
           chain.push(next);
           visited.add(next);
-          // Valid end: chain has >=4 nodes (>=3 links) starting and ending strong
           if (chain.length >= 4) {
             const del = _commonBuddyElims(start, next, d, values, candidates, BUDDIES);
-            if (del.length && (!best || chain.length < best.len)) {
-              best = { del, len: chain.length };
+            if (del.length) {
+              const key = _elimKey(del);
+              const existing = deletesMap.get(key);
+              if (!existing || chain.length < existing.chainLen) {
+                deletesMap.set(key, { del: [...del], chainLen: chain.length });
+              }
             }
           }
           dfs(next, false);
@@ -129,7 +133,6 @@ export class ChainSolver extends AbstractSolver {
           visited.delete(next);
         }
       } else {
-        // Next link is weak: any cell sharing a house
         for (const next of BUDDIES[cell]) {
           if (visited.has(next)) continue;
           if (values[next] !== 0) continue;
@@ -144,7 +147,6 @@ export class ChainSolver extends AbstractSolver {
     };
 
     dfs(start, true);
-    return best;
   }
 
   // ── XY-Chain ──────────────────────────────────────────────────────────────
@@ -299,13 +301,12 @@ export class ChainSolver extends AbstractSolver {
           chain.push(next);
           visited.add(next);
 
-          if (chain.length >= 4) {
+          // Only process even-length chains (Java guard fails for odd-length chains:
+          // same-parity endpoints share the same candidate "on" state, so no cell
+          // can see both with that candidate → checkRemotePairs is never called).
+          if (chain.length >= 4 && chain.length % 2 === 0) {
             // Accumulate victims from ALL valid (i,j) pairs in the chain.
             // Valid pairs: j-i >= 3 AND j-i is odd (opposite parities).
-            // This matches Java:
-            //   stackLevel == 7 (4 cells): checks only (chain[0], chain[3])
-            //   stackLevel > 7 (5+ cells): checks all (i,j) with i even in Java
-            //     and j = i+6, i+10, ..., which maps to TS diff = 3, 5, 7, ...
             const n = chain.length;
             const del: Candidate[] = [];
             const seen = new Set<string>();
