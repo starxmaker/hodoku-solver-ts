@@ -54,52 +54,52 @@ export class WingSolver extends AbstractSolver {
       if (values[i] === 0 && this.sudoku.candidateCount(i) === 2) biCells.push(i);
     }
 
-    for (let pi = 0; pi < biCells.length; pi++) {
-      const pivot = biCells[pi];
-      const pm = candidates[pivot];
-      // Extract the two pivot candidates a, b
-      let a = 0, b = 0;
-      for (let d = 1; d <= 9; d++) {
-        if (pm & (1 << d)) { if (!a) a = d; else b = d; }
-      }
-
-      const pivotBuddies = BUDDIES[pivot];
-
-      for (let qi = 0; qi < biCells.length; qi++) {
-        if (qi === pi) continue;
-        const p1 = biCells[qi];
-        if (!pivotBuddies.includes(p1)) continue;
-        const m1 = candidates[p1];
-        // p1 must share exactly one candidate with pivot
-        const shared1 = pm & m1;
-        if (_popcount(shared1) !== 1) continue;
-
-        for (let ri = qi + 1; ri < biCells.length; ri++) {
-          if (ri === pi) continue;
-          const p2 = biCells[ri];
-          if (!pivotBuddies.includes(p2)) continue;
-          const m2 = candidates[p2];
-          const shared2 = pm & m2;
-          if (_popcount(shared2) !== 1) continue;
-          // p1 and p2 must share the z candidate (not in pivot)
-          if (shared1 === shared2) continue; // share same candidate with pivot = bad
-          const z_mask = m1 & m2;
-          if (_popcount(z_mask) !== 1) continue;
-          if (z_mask & pm) continue; // z must not be in pivot
-          const z = _bit(z_mask);
-
-          // Eliminate z from cells seeing both pincers
-          const del: Candidate[] = [];
-          for (const cell of BUDDIES[p1]) {
-            if (cell !== pivot && cell !== p1 && cell !== p2 &&
-                BUDDIES[p2].includes(cell) &&
-                values[cell] === 0 &&
-                (candidates[cell] & (1 << z))) {
-              del.push({ index: cell, value: z as Digit });
+    const n = biCells.length;
+    // Iterate all triples (i < j < k), matching Java's getWing() iteration order.
+    // For each valid triple, try all 3 pivot assignments (tries 0/1/2 in Java).
+    for (let i = 0; i < n; i++) {
+      const ci = biCells[i];
+      const mi = candidates[ci];
+      for (let j = i + 1; j < n; j++) {
+        const cj = biCells[j];
+        const mj = candidates[cj];
+        // Pre-filter: ci and cj together must have exactly 3 distinct candidates.
+        if (_popcount(mi | mj) !== 3) continue;
+        for (let k = j + 1; k < n; k++) {
+          const ck = biCells[k];
+          const mk = candidates[ck];
+          // All three together must have exactly 3 distinct candidates.
+          if (_popcount(mi | mj | mk) !== 3) continue;
+          // No two cells may have identical candidate masks.
+          if (mi === mj || mj === mk || mk === mi) continue;
+          // Try all 3 pivot assignments, matching Java's tries 0/1/2:
+          //   tries=0: pivot=i, pincers=(j,k)
+          //   tries=1: pivot=j, pincers=(i,k)
+          //   tries=2: pivot=k, pincers=(j,i)
+          for (const [pivot, p1, p2, mp, m1, m2] of [
+            [ci, cj, ck, mi, mj, mk],
+            [cj, ci, ck, mj, mi, mk],
+            [ck, cj, ci, mk, mj, mi],
+          ] as [number, number, number, number, number, number][]) {
+            // Pivot must see both pincers.
+            if (!BUDDIES[pivot].includes(p1) || !BUDDIES[pivot].includes(p2)) continue;
+            // Pincers must share exactly one candidate z not in pivot.
+            const zMask = m1 & m2;
+            if (_popcount(zMask) !== 1 || (zMask & mp)) continue;
+            const z = _bit(zMask);
+            // Eliminate z from cells seeing both pincers.
+            const del: Candidate[] = [];
+            for (const cell of BUDDIES[p1]) {
+              if (cell !== pivot && cell !== p1 && cell !== p2 &&
+                  BUDDIES[p2].includes(cell) &&
+                  values[cell] === 0 &&
+                  (candidates[cell] & (1 << z))) {
+                del.push({ index: cell, value: z as Digit });
+              }
             }
-          }
-          if (del.length) {
-            return { type: SolutionType.XY_WING, placements: [], candidatesToDelete: del };
+            if (del.length) {
+              return { type: SolutionType.XY_WING, placements: [], candidatesToDelete: del };
+            }
           }
         }
       }
