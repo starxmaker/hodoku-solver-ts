@@ -1301,6 +1301,11 @@ export class TablingSolver extends AbstractSolver {
       }
     };
 
+    // Java's tmpSetC: the set of ALL cells in the chain. Used to exclude chain cells
+    // from peer eliminations (tmpSet.andNot(tmpSetC) in Java's checkNiceLoop).
+    const chainCells = new Set<number>();
+    for (const node of chain) chainCells.add(node.cell);
+
     // The chain starts at premiseCell. In Java's nlChain representation:
     // nlChain[0] = start node  (premise)
     // nlChain[1] = weak within cell or strong to next
@@ -1382,16 +1387,17 @@ export class TablingSolver extends AbstractSolver {
 
     // Check weak between-cell links:
     // A weak link between cells at node i: !isOn (weak arrival) and different cell from previous
+    // Java: tmpSet.and(buddies[i-1]).and(buddies[i]).andNot(tmpSetC).remove(startIndex).and(candidates[d])
+    //   where tmpSetC contains all chain cells. We replicate by checking !chainCells.has(buddy).
     for (let i = 1; i < n; i++) {
       if (chain[i].isOn) continue; // must be weak arrival
       if (chain[i].cell === chain[i - 1].cell) continue; // must be between cells
       const actCand = chain[i].d;
-      // Eliminate actCand from common buddies of chain[i-1].cell and chain[i].cell
+      // Eliminate actCand from common buddies of chain[i-1].cell and chain[i].cell,
+      // excluding ALL chain cells (Java's tmpSetC) and the premise cell.
       for (const buddy of Sudoku2.BUDDIES[chain[i - 1].cell]) {
-        if (buddy !== premiseCell
-            && BUDDY_SETS[chain[i].cell].has(buddy)
-            && buddy !== chain[i - 1].cell
-            && buddy !== chain[i].cell) {
+        if (!chainCells.has(buddy)
+            && BUDDY_SETS[chain[i].cell].has(buddy)) {
           addDel(buddy, actCand);
         }
       }
@@ -1401,22 +1407,10 @@ export class TablingSolver extends AbstractSolver {
     // The closing link connects chain[n-1] to chain[0] (premiseCell)
     // If last link is weak (and between cells):
     if (!lastLinkStrong && chain[n - 1].cell !== premiseCell) {
-      const actCand = premiseCand; // the weak link back carries the premise candidate? No...
-      // Actually, in a CNL, every link alternates. If the last link is weak,
-      // it means the connection from chain[n-1] to premiseCell is weak.
-      // For the closing link, the candidate is endCand (which equals the candidate at chain[n-1].d
-      // for the arrival, or premiseCand for the departure)
-      // Let me reconsider: the closing link goes from the end to the premise.
-      // Its candidate depends on the type of CNL.
-      // For (!firstStrong && !lastStrong && bivalue && startCand!=endCand):
-      //   The closing weak link carries endCand back to premiseCell.
-      // For (firstStrong != lastStrong && startCand == endCand):
-      //   If firstStrong && !lastStrong: the closing weak link carries startCand
       const closingCand = endCand;
       for (const buddy of Sudoku2.BUDDIES[chain[n - 1].cell]) {
-        if (buddy !== premiseCell
-            && BUDDY_SETS[premiseCell].has(buddy)
-            && buddy !== chain[n - 1].cell) {
+        if (!chainCells.has(buddy)
+            && BUDDY_SETS[premiseCell].has(buddy)) {
           addDel(buddy, closingCand);
         }
       }
@@ -1426,9 +1420,8 @@ export class TablingSolver extends AbstractSolver {
     if (!firstLinkStrong && chain[1].cell !== premiseCell) {
       const actCand = chain[1].d;
       for (const buddy of Sudoku2.BUDDIES[premiseCell]) {
-        if (buddy !== premiseCell
-            && BUDDY_SETS[chain[1].cell].has(buddy)
-            && buddy !== chain[1].cell) {
+        if (!chainCells.has(buddy)
+            && BUDDY_SETS[chain[1].cell].has(buddy)) {
           addDel(buddy, actCand);
         }
       }
