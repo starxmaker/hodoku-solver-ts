@@ -231,10 +231,14 @@ export class ChainSolver extends AbstractSolver {
 
   // ── Remote Pair ────────────────────────────────────────────────────────────
   // All chain cells have the SAME bivalue pair {c1,c2}.
-  // Cells alternate c1/c2 as we follow the chain.  Any cell that sees two
-  // chain cells at DIFFERENT parities (one even-indexed, one odd-indexed) must
-  // be neither c1 nor c2, because in every possible chain assignment one of
-  // those two is the solved value at each endpoint.
+  // Cells alternate c1/c2 as we follow the chain. Any cell that sees two
+  // chain cells at DIFFERENT parities (one even-indexed, one odd-indexed) and
+  // at least 3 steps apart can have both c1 and c2 eliminated.
+  //
+  // Java collects ALL valid chains (min 4 cells), accumulates eliminations from
+  // ALL valid pairs (i,j) with diff >= 3 in each chain, then picks the step
+  // with the most eliminations (breaking ties by chain length, then index sum).
+  // TS mirrors this with a full DFS + sort.
 
   private _findRemotePair(): SolutionStep | null {
     const { values, candidates } = this.sudoku;
@@ -243,13 +247,15 @@ export class ChainSolver extends AbstractSolver {
     // Collect bivalue pairs
     const byPair = new Map<number, number[]>(); // mask -> cells
     for (let i = 0; i < 81; i++) {
-      if (values[i] !== 0) continue;
-      const cnt = this.sudoku.candidateCount(i);
-      if (cnt !== 2) continue;
+      if (values[i] !== 0 || this.sudoku.candidateCount(i) !== 2) continue;
       const mask = candidates[i];
       if (!byPair.has(mask)) byPair.set(mask, []);
       byPair.get(mask)!.push(i);
     }
+
+    // Collect all steps from all valid chains across all bivalue pairs
+    const allSteps: { del: Candidate[]; chainLen: number }[] = [];
+    const deletesMap = new Map<string, number>(); // elimKey -> min chainLen seen
 
     for (const [mask, cells] of byPair) {
       if (cells.length < 4) continue;
@@ -257,65 +263,90 @@ export class ChainSolver extends AbstractSolver {
       for (let d = 1; d <= 9; d++) {
         if (mask & (1 << d)) { if (!c1) c1 = d; else c2 = d; }
       }
-
-      // Build chain: DFS through these cells via buddy connections
-      const chainResult = this._remotePairDFS(cells, BUDDIES, values, candidates, c1, c2);
-      if (chainResult) return { type: SolutionType.REMOTE_PAIR, placements: [], candidatesToDelete: chainResult };
+      this._collectRemotePairs(cells, BUDDIES, values, candidates, c1, c2, allSteps, deletesMap);
     }
-    return null;
+
+    if (allSteps.length === 0) return null;
+
+    // Sort per Java's compareTo: most eliminations first, shorter chain first,
+    // smaller index sum first (for determinism).
+    allSteps.sort((a, b) => {
+      const sizeDiff = b.del.length - a.del.length;
+      if (sizeDiff !== 0) return sizeDiff;
+      const chainDiff = a.chainLen - b.chainLen;
+      if (chainDiff !== 0) return chainDiff;
+      return _indexSum(a.del) - _indexSum(b.del);
+    });
+
+    return { type: SolutionType.REMOTE_PAIR, placements: [], candidatesToDelete: allSteps[0].del };
   }
 
-  private _remotePairDFS(
+  private _collectRemotePairs(
     cells: number[],
     BUDDIES: readonly (readonly number[])[],
     values: number[], candidates: number[],
     c1: number, c2: number,
-  ): Candidate[] | null {
+    allSteps: { del: Candidate[]; chainLen: number }[],
+    deletesMap: Map<string, number>,
+  ): void {
     for (const start of cells) {
       const chain = [start];
       const visited = new Set([start]);
 
-      const dfs = (cell: number): Candidate[] | null => {
+      const dfs = (cell: number): void => {
         for (const next of cells) {
-          if (visited.has(next)) continue;
-          if (!BUDDIES[cell].includes(next)) continue;
+          if (visited.has(next) || !BUDDIES[cell].includes(next)) continue;
           chain.push(next);
           visited.add(next);
 
-          // Two chain cells at DIFFERENT parities (j - i is odd) form a valid
-          // elimination pattern: any cell seeing both must be neither c1 nor c2
-          // because in both possible chain assignments, one of the two endpoints
-          // holds the value that would conflict with the victim cell.
           if (chain.length >= 4) {
-            const j = chain.length - 1; // index of newly added 'next'
-            for (let i = j - 1; i >= 0; i -= 2) {
-              // (j - i) is odd → different parities
-              const del: { index: number; value: Digit }[] = [];
-              for (const victim of BUDDIES[chain[i]]) {
-                if (visited.has(victim)) continue;
-                if (values[victim] !== 0) continue;
-                if (!BUDDIES[chain[j]].includes(victim)) continue;
-                if (candidates[victim] & (1 << c1))
-                  del.push({ index: victim, value: c1 as Digit });
-                if (candidates[victim] & (1 << c2))
-                  del.push({ index: victim, value: c2 as Digit });
+            // Accumulate victims from ALL valid (i,j) pairs in the chain.
+            // Valid pairs: j-i >= 3 AND j-i is odd (opposite parities).
+            // This matches Java:
+            //   stackLevel == 7 (4 cells): checks only (chain[0], chain[3])
+            //   stackLevel > 7 (5+ cells): checks all (i,j) with i even in Java
+            //     and j = i+6, i+10, ..., which maps to TS diff = 3, 5, 7, ...
+            const n = chain.length;
+            const del: Candidate[] = [];
+            const seen = new Set<string>();
+            for (let ci = 0; ci < n; ci++) {
+              for (let cj = ci + 3; cj < n; cj += 2) {
+                for (const victim of BUDDIES[chain[ci]]) {
+                  if (visited.has(victim) || values[victim] !== 0) continue;
+                  if (!BUDDIES[chain[cj]].includes(victim)) continue;
+                  const k1 = `${victim}/${c1}`;
+                  const k2 = `${victim}/${c2}`;
+                  if ((candidates[victim] & (1 << c1)) && !seen.has(k1)) {
+                    seen.add(k1); del.push({ index: victim, value: c1 as Digit });
+                  }
+                  if ((candidates[victim] & (1 << c2)) && !seen.has(k2)) {
+                    seen.add(k2); del.push({ index: victim, value: c2 as Digit });
+                  }
+                }
               }
-              if (del.length) return del;
+            }
+
+            if (del.length > 0) {
+              // Java chain length = 2 * TS chain length (2 entries per bivalue cell)
+              // stackLevel = (Java chain length) - 1 = 2*n - 1
+              const stackLevel = n * 2 - 1;
+              const elimKey = del.map(c => `${c.index}/${c.value}`).sort().join(',');
+              const existing = deletesMap.get(elimKey);
+              if (existing === undefined || existing > stackLevel) {
+                deletesMap.set(elimKey, stackLevel);
+                allSteps.push({ del, chainLen: stackLevel });
+              }
             }
           }
 
-          const res = dfs(next);
-          if (res) return res;
+          dfs(next);
           chain.pop();
           visited.delete(next);
         }
-        return null;
       };
 
-      const res = dfs(start);
-      if (res) return res;
+      dfs(start);
     }
-    return null;
   }
 }
 

@@ -141,10 +141,14 @@ export class MiscellaneousSolver extends AbstractSolver {
 
   /**
    * For a fixed intersection subset: enumerate all subsets of the remaining
-   * line cells, then for each valid line selection enumerate all valid subsets
-   * of the remaining box cells, and test for SDC eliminations.
+   * line cells using depth-first order (matching Java's stack-based enumeration),
+   * then for each valid line selection enumerate all valid subsets of the
+   * remaining box cells (also DFS), and test for SDC eliminations.
    *
-   * Mirrors Java's two-pass checkHouses(nPlus, source, allowedCandSet, onlyOne, secondCheck).
+   * Java uses a stack-based DFS that always goes deeper before trying siblings:
+   *   {l0} → {l0,l1} → {l0,l1,l2} → ... backtrack → {l0,l2} → ... → {l1} → ...
+   * This differs from bit-mask order ({l0},{l1},{l0,l1},{l2},{l0,l2},...) and
+   * must be matched exactly for score parity.
    */
   private _checkHouseSearch(
     intActCells: number[],
@@ -155,68 +159,114 @@ export class MiscellaneousSolver extends AbstractSolver {
   ): SolutionStep | null {
     const intActSet = new Set(intActCells);
     const lineSource = lineUnsolved.filter(i => !intActSet.has(i));
+    return this._lineSearchDFS(
+      0, lineSource, 0, [],
+      intActCells, intActCands, nPlus,
+      lineUnsolved, boxUnsolved, intActSet,
+    );
+  }
 
-    // Enumerate all non-empty subsets of lineSource (in Java: first secondCheck=false pass)
+  /**
+   * DFS over line-cell subsets, mirroring Java's stack-based checkHouses
+   * (secondCheck=false). Always recurses deeper after processing each cell
+   * (matching Java's unconditional level++).
+   */
+  private _lineSearchDFS(
+    start: number,
+    lineSource: number[],
+    cumCands: number,
+    cumCells: number[],
+    intActCells: number[],
+    intActCands: number,
+    nPlus: number,
+    lineUnsolved: number[],
+    boxUnsolved: number[],
+    intActSet: Set<number>,
+  ): SolutionStep | null {
     const n = lineSource.length;
-    for (let mask = 1; mask < (1 << n); mask++) {
-      // Build this line subset
-      let lineCands = 0;
-      for (let b = 0; b < n; b++) {
-        if (mask & (1 << b)) lineCands |= this.sudoku.candidates[lineSource[b]];
+    for (let i = start; i < n; i++) {
+      const cell = lineSource[i];
+      const cands = cumCands | this.sudoku.candidates[cell];
+      const cells = [...cumCells, cell];
+
+      const anzContained = anzValues(cands & intActCands);
+      const anzExtra     = anzValues(cands & ~intActCands);
+      const levelSize    = cells.length;
+      const lineFills    = levelSize - anzExtra;
+
+      // Java: anzContained > 0 && level > anzExtra && level - anzExtra < nPlus
+      if (anzContained > 0 && levelSize > anzExtra && lineFills < nPlus) {
+        const lineSet       = new Set(cells);
+        const blockAllowed  = (~(cands & intActCands)) & MAX_CAND_MASK;
+        const blockNPlus    = nPlus - lineFills;
+        const blockSource   = boxUnsolved.filter(c => !intActSet.has(c) && !lineSet.has(c));
+
+        const step = this._blockSearchDFS(
+          0, blockSource, blockAllowed, 0, [],
+          intActCells, intActCands, cells, cands, blockNPlus,
+          lineUnsolved, boxUnsolved, intActSet,
+        );
+        if (step) return step;
       }
 
-      const anzContainedLine = anzValues(lineCands & intActCands);
-      // extra candidates in the line selection that are NOT in the intersection
-      const lineExtraCands = lineCands & ~intActCands;
-      const lineAnzExtra   = anzValues(lineExtraCands);
-      const lineSize       = _popcount(mask);
-      const lineFills      = lineSize - lineAnzExtra; // intersection slots filled
+      // Java: unconditionally go deeper (level++) before trying next sibling
+      const step = this._lineSearchDFS(
+        i + 1, lineSource, cands, cells,
+        intActCells, intActCands, nPlus,
+        lineUnsolved, boxUnsolved, intActSet,
+      );
+      if (step) return step;
+    }
+    return null;
+  }
 
-      // Condition (Java): anzContained > 0 && level > anzExtra && level - anzExtra < nPlus
-      if (anzContainedLine === 0 || lineSize <= lineAnzExtra || lineFills >= nPlus) continue;
+  /**
+   * DFS over block-cell subsets, mirroring Java's stack-based checkHouses
+   * (secondCheck=true). Only recurses deeper if gate-1 passes (blockCands
+   * within blockAllowed), since gate-1 can never recover once violated.
+   */
+  private _blockSearchDFS(
+    start: number,
+    blockSource: number[],
+    blockAllowed: number,
+    cumCands: number,
+    cumCells: number[],
+    intActCells: number[],
+    intActCands: number,
+    lineCells: number[],
+    lineCands: number,
+    blockNPlus: number,
+    lineUnsolved: number[],
+    boxUnsolved: number[],
+    intActSet: Set<number>,
+  ): SolutionStep | null {
+    const m = blockSource.length;
+    for (let i = start; i < m; i++) {
+      const cell  = blockSource[i];
+      const cands = cumCands | this.sudoku.candidates[cell];
+      const cells = [...cumCells, cell];
 
-      // Build lineCells array for this mask
-      const lineCells: number[] = [];
-      for (let b = 0; b < n; b++) if (mask & (1 << b)) lineCells.push(lineSource[b]);
-      const lineSet = new Set(lineCells);
+      // Gate 1: block candidates must be within blockAllowed
+      if ((cands & ~blockAllowed) === 0) {
+        const anzContained = anzValues(cands & intActCands);
+        const anzExtra     = anzValues(cands & ~intActCands);
+        const blockFills   = cells.length - anzExtra;
 
-      // blockAllowed: block cells must NOT intersect the core line candidates
-      // (= line candidates that ARE in the intersection, i.e. the non-extra ones)
-      // Java: blockAllowed = ~(lineCands & ~extraCands) = ~(lineCands & intActCands)
-      const lineCoreCands = lineCands & intActCands; // = lineCands minus its extras
-      const blockAllowed  = (~lineCoreCands) & MAX_CAND_MASK;
-      const blockNPlus    = nPlus - lineFills;
-
-      // Enumerate all non-empty subsets of boxSource (second secondCheck=true pass)
-      const boxSource = boxUnsolved.filter(i => !intActSet.has(i) && !lineSet.has(i));
-      const m = boxSource.length;
-      for (let bmask = 1; bmask < (1 << m); bmask++) {
-        // Build block subset candidates
-        let blockCands = 0;
-        for (let b = 0; b < m; b++) {
-          if (bmask & (1 << b)) blockCands |= this.sudoku.candidates[boxSource[b]];
+        // Java: anzContained > 0 && level - anzExtra == nPlus (blockNPlus)
+        if (anzContained > 0 && blockFills === blockNPlus) {
+          const step = this._computeEliminations(
+            intActCells, intActCands,
+            lineCells, lineCands,
+            cells, cands,
+            lineUnsolved, boxUnsolved, intActSet,
+          );
+          if (step) return step;
         }
 
-        // Java: (candidates & ~allowedCandSet) == 0
-        if ((blockCands & ~blockAllowed) !== 0) continue;
-
-        const anzContainedBlock = anzValues(blockCands & intActCands);
-        const blockAnzExtra     = anzValues(blockCands & ~intActCands);
-        const blockSize         = _popcount(bmask);
-        const blockFills        = blockSize - blockAnzExtra;
-
-        // Java: anzContained > 0 && level - anzExtra == nPlus (where nPlus = blockNPlus)
-        if (anzContainedBlock === 0 || blockFills !== blockNPlus) continue;
-
-        // Build blockCells array
-        const blockCells: number[] = [];
-        for (let b = 0; b < m; b++) if (bmask & (1 << b)) blockCells.push(boxSource[b]);
-
-        // Found a candidate SDC — check for actual eliminations
-        const step = this._computeEliminations(
-          intActCells, intActCands,
-          lineCells,  lineCands,
-          blockCells, blockCands,
+        // Go deeper only when gate-1 passes (supersets of invalid sets are also invalid)
+        const step = this._blockSearchDFS(
+          i + 1, blockSource, blockAllowed, cands, cells,
+          intActCells, intActCands, lineCells, lineCands, blockNPlus,
           lineUnsolved, boxUnsolved, intActSet,
         );
         if (step) return step;
@@ -286,10 +336,3 @@ export class MiscellaneousSolver extends AbstractSolver {
 // ---------------------------------------------------------------------------
 // Module-level utility
 // ---------------------------------------------------------------------------
-
-/** Count the number of set bits in a non-negative integer (32-bit safe). */
-function _popcount(n: number): number {
-  n = n - ((n >>> 1) & 0x55555555);
-  n = (n & 0x33333333) + ((n >>> 2) & 0x33333333);
-  return (((n + (n >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
-}

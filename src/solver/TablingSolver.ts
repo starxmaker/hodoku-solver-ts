@@ -896,14 +896,17 @@ export class TablingSolver extends AbstractSolver {
 
         // ── ON premise: d is SET in ci ─────────────────────────────────────
         const on = this._onTable[ti];
-        // All other candidates in cell are deleted
+        // All other candidates in cell are deleted (cell candidates first, matches Java chainsOnly)
         for (const d2 of cellCands) {
           if (d2 !== d) on.addDel(ci, d2);
         }
-        // d deleted from all peers
-        for (const peer of Sudoku2.BUDDIES[ci]) {
-          if (s.values[peer] === 0 && s.isCandidate(peer, d)) {
-            on.addDel(peer, d);
+        // d deleted from all peers — iterate houses in ROW→COL→BOX order (matching
+        // Java's CONSTRAINTS[i] order) so insertion order into offSets matches Java's BFS.
+        for (const hIdx of CELL_HOUSES[ci]) {
+          for (const peer of HOUSE_CELLS[hIdx] as number[]) {
+            if (peer !== ci && s.values[peer] === 0 && s.isCandidate(peer, d)) {
+              on.addDel(peer, d);
+            }
           }
         }
 
@@ -956,15 +959,24 @@ export class TablingSolver extends AbstractSolver {
     for (let ti = 0; ti < TABLE_SIZE; ti++) {
       const on  = onTable[ti];
       const off = offTable[ti];
-      for (let d = 1; d <= 9; d++) {
-        for (const c of on.onSets[d])   onSnap[ti].push({ cell: c, d, isOn: true });
-        for (const c of on.offSets[d])  onSnap[ti].push({ cell: c, d, isOn: false });
-        for (const c of off.onSets[d])  offSnap[ti].push({ cell: c, d, isOn: true });
-        for (const c of off.offSets[d]) offSnap[ti].push({ cell: c, d, isOn: false });
-      }
+      const pd  = ti % 10; // premise digit for this table entry
+
+      // ON-table snap: match Java chainsOnly fill order — ON implications first,
+      // then OFF for cell-candidates (d ≠ pd), then OFF for same-digit peers (d = pd).
+      for (let d = 1; d <= 9; d++) for (const c of on.onSets[d])  onSnap[ti].push({ cell: c, d, isOn: true });
+      for (let d = 1; d <= 9; d++) if (d !== pd) for (const c of on.offSets[d]) onSnap[ti].push({ cell: c, d, isOn: false });
+      for (const c of on.offSets[pd]) onSnap[ti].push({ cell: c, d: pd, isOn: false });
+
+      // OFF-table snap: ON implications first, then OFF.
+      for (let d = 1; d <= 9; d++) for (const c of off.onSets[d])  offSnap[ti].push({ cell: c, d, isOn: true });
+      for (let d = 1; d <= 9; d++) for (const c of off.offSets[d]) offSnap[ti].push({ cell: c, d, isOn: false });
     }
 
-    for (const [table, snap] of [[onTable, onSnap], [offTable, offSnap]] as const) {
+    const tableSnapPairs: [TableEntry[], SnapEntry[][]][] = [
+      [onTable, onSnap],
+      [offTable, offSnap],
+    ];
+    for (const [table, snap] of tableSnapPairs) {
       for (let ti = 0; ti < TABLE_SIZE; ti++) {
         const dest = table[ti];
         if (!dest.populated) continue;
@@ -1042,8 +1054,10 @@ export class TablingSolver extends AbstractSolver {
                     }
                   }
                 }
-              } else if (childPvp === 0 && dest.pathVisitsPremiseOn[key2]) {
-                dest.pathVisitsPremiseOn[key2] = 0;
+              } else {
+                if (childPvp === 0 && dest.pathVisitsPremiseOn[key2]) {
+                  dest.pathVisitsPremiseOn[key2] = 0;
+                }
               }
             } else {
               if (dest.addDel(c2, d2)) {
@@ -1089,8 +1103,10 @@ export class TablingSolver extends AbstractSolver {
                     }
                   }
                 }
-              } else if (childPvp === 0 && dest.pathVisitsPremiseOff[key2]) {
-                dest.pathVisitsPremiseOff[key2] = 0;
+              } else {
+                if (childPvp === 0 && dest.pathVisitsPremiseOff[key2]) {
+                  dest.pathVisitsPremiseOff[key2] = 0;
+                }
               }
             }
           }
@@ -1108,63 +1124,61 @@ export class TablingSolver extends AbstractSolver {
    *   1. First link stays in cell: chain[0].cell == chain[1].cell
    *   2. Lasso: a non-premise cell appears after a 1-step gap
    *
-   * Java's rules (from addChain):
+   * Java's rules (from addChain with isNiceLoop=true):
    *   - Cells are added to lassoSet with a 1-step delay
    *   - The premise cell (firstCellIndex) is NEVER added to the set
    *   - This allows consecutive same-cell entries (within-cell links)
    */
-  /**
-   * Validate a nice-loop chain by tracing parent pointers back to root.
-   * Returns false if the first link stays in the premise cell.
-   *
-   * Note: Java also does full lasso detection, but its iterative expansion
-   * assigns different parent pointers than our BFS, so the reconstructed
-   * chains differ. Lasso checking is omitted here because the underlying
-   * table proof (BFS reachability) is valid regardless of which specific
-   * path the parent pointers trace.
-   */
   private _chainIsValid(entry: TableEntry, ci: number, endD: number, endIsOn: boolean): boolean {
-    // Trace one step back from conclusion to check first-link-stays-in-cell
     const key = ci * 10 + endD;
     const parent = endIsOn ? entry.retOn[key] : entry.retOff[key];
-    if (parent === -1) {
-      // dist=1 entry: parent is the premise cell itself
-      // First link stays in cell → invalid
-      return false;
-    }
-    const pCell = (parent / 20) | 0;
+    // dist=1 entry: premise → conclusion directly (no intermediate chain)
+    if (parent === -1) return false;
+    return this._buildAndCheckLasso(entry, ci, parent);
+  }
 
-    // Trace one more step to find the cell after the premise
-    const pD = ((parent % 20) >> 1);
-    const pIsOn = (parent & 1) === 1;
-    const pKey = pCell * 10 + pD;
-    const grandparent = pIsOn ? entry.retOn[pKey] : entry.retOff[pKey];
+  /**
+   * Trace the chain backward from the node encoded in `startParent` using
+   * primary parent pointers only. Returns true iff the resulting chain is
+   * lasso-free per Java's nice-loop rules (ci is exempt from the set).
+   */
+  private _buildAndCheckLasso(entry: TableEntry, ci: number, startParent: number): boolean {
+    const backwardCells: number[] = [ci]; // conclusion (= premise cell for DNL)
+    let curCell = (startParent / 20) | 0;
+    let curD    = (startParent % 20) >> 1;
+    let curIsOn = (startParent & 1) === 1;
+    backwardCells.push(curCell);
 
-    if (grandparent === -1) {
-      // pCell is a dist=1 entry (direct implication of premise)
-      // This is the "second cell" in the chain — if it equals ci, first link stayed in cell
-      return pCell !== ci;
-    }
-
-    // General case: trace fully backward and check fwd[0]===fwd[1]
-    const backwardCells: number[] = [ci];
-    let curCell = ci, curD = endD, curIsOn = endIsOn;
     let steps = 0;
     while (steps < 200) {
-      const k = curCell * 10 + curD;
+      const k   = curCell * 10 + curD;
       const par = curIsOn ? entry.retOn[k] : entry.retOff[k];
       if (par === -1) break;
-      const pc = (par / 20) | 0;
-      backwardCells.push(pc);
-      curCell = pc;
-      curD = ((par % 20) >> 1);
+      curCell = (par / 20) | 0;
+      curD    = (par % 20) >> 1;
       curIsOn = (par & 1) === 1;
+      backwardCells.push(curCell);
       steps++;
     }
-    backwardCells.push(ci);
-    // fwd[0] = ci (premise), fwd[1] = first cell after premise
-    const firstAfterPremise = backwardCells[backwardCells.length - 2];
-    return firstAfterPremise !== ci;
+    backwardCells.push(ci); // premise
+
+    // Java's Nice Loop check (addChain line 2802): the conclusion's immediate
+    // parent must not be in the same cell as the conclusion.  This mirrors
+    // chain[0].cell == chain[1].cell in Java's backward chain array.
+    if (backwardCells[1] === ci) return false; // last link stays in conclusion cell
+
+    // Java's nice-loop lasso check: add each cell to lassoSet with a 1-step
+    // delay; ci (premise/conclusion) is never added (exempt).
+    const n = backwardCells.length;
+    const lassoSet = new Set<number>();
+    let lastCell = -1;
+    for (let i = n - 1; i >= 0; i--) {
+      const cell = backwardCells[i];
+      if (lassoSet.has(cell)) return false; // lasso detected
+      if (lastCell !== -1 && lastCell !== ci) lassoSet.add(lastCell);
+      lastCell = cell;
+    }
+    return true;
   }
 
   /**
@@ -1501,8 +1515,8 @@ export class TablingSolver extends AbstractSolver {
         // → eliminate ALL candidates except d from ci
         if (entry.onSets[d].has(ci)) {
           const dist = entry.minDistOn[ci * 10 + d];
-          const usesGroup2 = grouped ? this._chainUsesGroupNode(entry, ci, d, true) : this._chainIsValid(entry, ci, d, true);
-          if (dist > 2 && usesGroup2) {
+          const isValid = grouped ? this._chainUsesGroupNode(entry, ci, d, true) : this._chainIsValid(entry, ci, d, true);
+          if (dist > 2 && isValid) {
             const dels: Candidate[] = [];
             for (let d2 = 1; d2 <= 9; d2++) {
               if (d2 !== d && s.isCandidate(ci, d2)) {
