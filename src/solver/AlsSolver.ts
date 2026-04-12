@@ -109,6 +109,10 @@ export class AlsSolver extends AbstractSolver {
     const n = alses.length;
     const BUDDIES = Sudoku2.BUDDIES;
 
+    // Collect all valid steps, sort by AlsComparator, return best.
+    // Java sorts by: most elims DESC → elim index sum ASC → fewer ALS cells ASC.
+    const candidates: { step: SolutionStep; alsIndexCount: number }[] = [];
+
     for (let i = 0; i < n - 1; i++) {
       const A = alses[i];
       for (let j = i + 1; j < n; j++) {
@@ -171,15 +175,35 @@ export class AlsSolver extends AbstractSolver {
         // Deduplicate
         const unique = dedupCands(toDelete);
         if (unique.length > 0) {
-          return {
-            type: SolutionType.ALS_XZ,
-            placements: [],
-            candidatesToDelete: unique,
-          };
+          candidates.push({
+            step: { type: SolutionType.ALS_XZ, placements: [], candidatesToDelete: unique },
+            alsIndexCount: A.cells.length + B.cells.length,
+          });
         }
       }
     }
-    return null;
+
+    if (candidates.length === 0) return null;
+
+    // AlsComparator: most elims DESC, then elim index sum ASC, then fewer ALS cells ASC.
+    candidates.sort((a, b) => {
+      const byElim = b.step.candidatesToDelete.length - a.step.candidatesToDelete.length;
+      if (byElim !== 0) return byElim;
+
+      const elimA = a.step.candidatesToDelete;
+      const elimB = b.step.candidatesToDelete;
+      // Check equivalence (same set of eliminations)
+      const isEquiv = elimA.length === elimB.length &&
+        elimA.every((e, k) => e.index === elimB[k]?.index && e.value === elimB[k]?.value);
+      if (!isEquiv) {
+        const sumA = elimA.reduce((s, e) => s + e.index, 0);
+        const sumB = elimB.reduce((s, e) => s + e.index, 0);
+        return sumA - sumB;
+      }
+      return a.alsIndexCount - b.alsIndexCount;
+    });
+
+    return candidates[0].step;
   }
 
   private _doublyLinkedElims(
