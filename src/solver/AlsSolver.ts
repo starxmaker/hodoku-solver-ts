@@ -337,28 +337,23 @@ export class AlsSolver extends AbstractSolver {
   // Eliminations: common candidates of the first and last ALS (excluding ALL
   // RC digits of the chain endpoint links) from cells seeing all instances.
   // Adjacency rule: two consecutive RCs in the chain must use different digits.
+  //
+  // Matches Java's getAlsXYChain(): forward-only adjacency (i < j),
+  // collect ALL valid chains, deduplicate by elimination key (keep shorter),
+  // sort by AlsComparator, return best.
   // -------------------------------------------------------------------------
-  private _alsChainNodeCount = 0;
-  private static readonly ALS_CHAIN_MAX_NODES = 500_000;
 
   private _findAlsChain(): SolutionStep | null {
     const alses = this._collectAlses();
     const rcs   = this._collectRCs(alses);
 
-    // Build per-ALS adjacency list.
-    // Each entry stores: j (target ALS), d (active RC digit), d2 (partner RC digit, 0 if single).
+    // Forward-only adjacency: only i → j edges (matching Java's rcOnlyForward).
+    // _collectRCs already produces entries with i < j.
     const adj = new Map<number, { j: number; d: number; d2: number }[]>();
     for (const rc of rcs) {
-      const pairs: [number, number, number, number][] = [
-        [rc.i, rc.j, rc.d1, rc.d2],
-        [rc.j, rc.i, rc.d1, rc.d2],
-      ];
-      for (const [ai, aj, d, d2] of pairs) {
-        if (!adj.has(ai)) adj.set(ai, []);
-        adj.get(ai)!.push({ j: aj, d, d2 });
-        // If doubly linked, also add the reverse-active entry.
-        if (d2 > 0) adj.get(ai)!.push({ j: aj, d: d2, d2: d });
-      }
+      if (!adj.has(rc.i)) adj.set(rc.i, []);
+      adj.get(rc.i)!.push({ j: rc.j, d: rc.d1, d2: rc.d2 });
+      if (rc.d2 > 0) adj.get(rc.i)!.push({ j: rc.j, d: rc.d2, d2: rc.d1 });
     }
 
     // Deduplicate adjacency entries per ALS.
@@ -372,11 +367,14 @@ export class AlsSolver extends AbstractSolver {
       list.length = wi;
     }
 
+    // Collect all steps + deduplicate by elimination string (keep shorter chain).
+    const steps: { step: SolutionStep; alsIndexCount: number; alsCount: number }[] = [];
+    const deletesMap = new Map<string, number>();
+
     const chain: number[]               = [];
-    const rcInfo: { d: number; d2: number }[] = [];  // RC info for each chain link
+    const rcInfo: { d: number; d2: number }[] = [];
     const inChain = new Set<number>();
 
-    this._alsChainNodeCount = 0;
     for (let start = 0; start < alses.length; start++) {
       chain.length  = 0;
       rcInfo.length = 0;
@@ -384,25 +382,55 @@ export class AlsSolver extends AbstractSolver {
       chain.push(start);
       inChain.add(start);
 
-      const result = this._alsChainDFS(
-        start, 0, chain, rcInfo, inChain, alses, adj,
-      );
-      if (result) return result;
+      this._alsChainDFS(start, 0, chain, rcInfo, inChain, alses, adj, steps, deletesMap);
     }
-    return null;
+
+    if (steps.length === 0) return null;
+
+    // Sort by AlsComparator (Java: AlsSolver.java line 1410)
+    steps.sort((a, b) => {
+      // 1. Most eliminations first
+      const byElim = b.step.candidatesToDelete.length - a.step.candidatesToDelete.length;
+      if (byElim !== 0) return byElim;
+
+      const elimA = a.step.candidatesToDelete;
+      const elimB = b.step.candidatesToDelete;
+
+      // Check equivalence: same set of (index,value) pairs (order-independent)
+      const isEquiv = elimA.length === elimB.length &&
+        elimA.every(e => elimB.some(f => f.index === e.index && f.value === e.value));
+
+      if (!isEquiv) {
+        // 2. Weighted index sum ASC (Java's getIndexSumme)
+        let sumA = 0, sumB = 0;
+        let offA = 1, offB = 1;
+        for (const e of elimA) { sumA += e.index * offA + e.value; offA += 80; }
+        for (const e of elimB) { sumB += e.index * offB + e.value; offB += 80; }
+        return sumA - sumB;
+      }
+      // 3. Fewer ALSes first
+      const byAlsCount = a.alsCount - b.alsCount;
+      if (byAlsCount !== 0) return byAlsCount;
+      // 4. Fewer total ALS cells first
+      return a.alsIndexCount - b.alsIndexCount;
+    });
+
+    return steps[0].step;
   }
 
+  /** DFS collecting all valid ALS chains (forward-only). */
   private _alsChainDFS(
-    cur:     number,
-    entryD:  number,                          // active RC digit used to reach cur (0 for start)
-    chain:   number[],                        // ALS indices in chain
-    rcInfo:  { d: number; d2: number }[],     // RC info for each link entering ALS (index 0 = link into chain[1])
-    inChain: Set<number>,
-    alses:   Als[],
-    adj:     Map<number, { j: number; d: number; d2: number }[]>,
-  ): SolutionStep | null {
-    if (chain.length > 50) return null; // H13A: Java MAX_RC=50 in getStep mode (was incorrectly 6)
-    if (++this._alsChainNodeCount > AlsSolver.ALS_CHAIN_MAX_NODES) return null;
+    cur:        number,
+    entryD:     number,
+    chain:      number[],
+    rcInfo:     { d: number; d2: number }[],
+    inChain:    Set<number>,
+    alses:      Als[],
+    adj:        Map<number, { j: number; d: number; d2: number }[]>,
+    steps:      { step: SolutionStep; alsIndexCount: number; alsCount: number }[],
+    deletesMap: Map<string, number>,
+  ): void {
+    if (chain.length > 50) return; // Java MAX_RC=50
 
     for (const { j, d, d2 } of (adj.get(cur) ?? [])) {
       if (entryD !== 0 && d === entryD) continue; // adjacency rule
@@ -413,7 +441,6 @@ export class AlsSolver extends AbstractSolver {
       rcInfo.push({ d, d2 });
 
       if (chain.length >= 4) {
-        // Exclude ALL digits of first RC link and last RC link.
         const firstRc = rcInfo[0];
         const lastRc  = rcInfo[rcInfo.length - 1];
         const step = this._checkAlsChainElims(
@@ -421,20 +448,27 @@ export class AlsSolver extends AbstractSolver {
           firstRc.d, firstRc.d2, lastRc.d, lastRc.d2,
         );
         if (step) {
-          inChain.delete(j); chain.pop(); rcInfo.pop();
-          return step;
+          const alsIndexCount = chain.reduce((s, idx) => s + alses[idx].cells.length, 0);
+          const alsCount = chain.length;
+          const elimKey = step.candidatesToDelete
+            .map(e => `${e.index}:${e.value}`).sort().join(',');
+
+          const existing = deletesMap.get(elimKey);
+          if (existing !== undefined) {
+            if (alsIndexCount < steps[existing].alsIndexCount) {
+              steps[existing] = { step, alsIndexCount, alsCount };
+            }
+          } else {
+            deletesMap.set(elimKey, steps.length);
+            steps.push({ step, alsIndexCount, alsCount });
+          }
         }
       }
 
-      const result = this._alsChainDFS(j, d, chain, rcInfo, inChain, alses, adj);
-      if (result) {
-        inChain.delete(j); chain.pop(); rcInfo.pop();
-        return result;
-      }
+      this._alsChainDFS(j, d, chain, rcInfo, inChain, alses, adj, steps, deletesMap);
 
       inChain.delete(j); chain.pop(); rcInfo.pop();
     }
-    return null;
   }
 
   private _checkAlsChainElims(
@@ -442,18 +476,15 @@ export class AlsSolver extends AbstractSolver {
     firstRcD: number, firstRcD2: number,
     lastRcD:  number, lastRcD2:  number,
   ): SolutionStep | null {
-    // Start and end ALS must not share cells.
-    const aSet = new Set(startAls.cells);
-    if (endAls.cells.some(c => aSet.has(c))) return null;
+    // Java allows overlapping start/end ALSes in chains (no overlap rejection).
 
     // H13C: Only exclude the ACTIVE RC digits (d1) of the first and last links.
-    // Including partner digit d2 incorrectly blocks valid Z-eliminations when
-    // the partner is not the active RC (Java: actualRC=1 means only d1 excluded).
     const rcMask = (1 << firstRcD) | (1 << lastRcD);
 
     const commonZMask = startAls.candMask & endAls.candMask & ~rcMask;
     if (!commonZMask) return null;
 
+    const aSet  = new Set(startAls.cells);
     const bSet  = new Set(endAls.cells);
     const toDelete: { index: number; value: Digit }[] = [];
 
@@ -599,27 +630,64 @@ export function collectAlses(s: Sudoku2): Als[] {
   const HOUSES = Sudoku2.HOUSES;
   const seen = new Set<string>();
 
+  // Match Java's checkAlsRecursive: for each house, for each starting
+  // position j in the house, recursively enumerate subsets depth-first.
+  // Java iterates over ALL positions in the house array (0..8), skipping
+  // solved cells during the recursion. The outer j-loop means j=0 generates
+  // all ALSes; j>0 only produces duplicates rejected by `seen`.
+  const indexSet: number[] = [];
+  const candStack: number[] = [0];
+
   for (let h = 0; h < 27; h++) {
     const house = HOUSES[h];
-    const unsolved: number[] = [];
-    for (const i of house) {
-      if (s.values[i] === 0) unsolved.push(i);
+    for (let j = 0; j < house.length; j++) {
+      indexSet.length = 0;
+      candStack.length = 1;
+      candStack[0] = 0;
+      checkAlsRecursive(s, house, j, 0, indexSet, candStack, alses, seen);
     }
-    const n = unsolved.length;
-    for (let k = 1; k < n; k++) {
-      for (const combo of kCombinations(unsolved, k)) {
-        let mask = 0;
-        for (const i of combo) mask |= s.candidates[i];
-        if (popcount(mask) !== k + 1) continue;
-        const key = combo.slice().sort((a, b) => a - b).join(',');
-        if (seen.has(key)) continue;
+  }
+  return alses;
+}
+
+/**
+ * Recursive ALS search over one house — mirrors Java's
+ * SudokuStepFinder.checkAlsRecursive() exactly.
+ */
+function checkAlsRecursive(
+  s: Sudoku2,
+  house: readonly number[],
+  startIndex: number,
+  anzahl: number,
+  indexSet: number[],
+  candStack: number[],
+  alses: Als[],
+  seen: Set<string>,
+): void {
+  anzahl++;
+  // No more than house.length - 1 cells in an ALS
+  if (anzahl > house.length - 1) return;
+
+  for (let i = startIndex; i < house.length; i++) {
+    const houseIndex = house[i];
+    if (s.values[houseIndex] !== 0) continue; // solved → skip
+
+    indexSet.push(houseIndex);
+    candStack[anzahl] = candStack[anzahl - 1] | s.candidates[houseIndex];
+
+    // If #candidates == #cells + 1 → ALS found
+    if (popcount(candStack[anzahl]) - anzahl === 1) {
+      const key = indexSet.slice().sort((a, b) => a - b).join(',');
+      if (!seen.has(key)) {
         seen.add(key);
+        const combo = indexSet.slice();
+        const mask = candStack[anzahl];
         const cellsFor: number[][] = new Array(10).fill(null).map(() => []);
         const buddiesFor: Set<number>[] = new Array(10).fill(null).map(() => new Set());
         for (let d = 1; d <= 9; d++) {
           if (!(mask & (1 << d))) continue;
-          for (const i of combo) {
-            if (s.isCandidate(i, d)) cellsFor[d].push(i);
+          for (const ci of combo) {
+            if (s.isCandidate(ci, d)) cellsFor[d].push(ci);
           }
           if (cellsFor[d].length > 0) {
             const cb = commonBuddies(cellsFor[d]);
@@ -629,26 +697,22 @@ export function collectAlses(s: Sudoku2): Als[] {
             }
           }
         }
-        alses.push({ cells: combo.slice().sort((a, b) => a - b), candMask: mask, cellsFor, buddiesFor });
+        alses.push({ cells: combo.sort((a, b) => a - b), candMask: mask, cellsFor, buddiesFor });
       }
     }
+
+    // Continue recursion
+    checkAlsRecursive(s, house, i + 1, anzahl, indexSet, candStack, alses, seen);
+
+    // Remove current cell
+    indexSet.pop();
   }
-  return alses;
 }
 
 function popcount(mask: number): number {
   let n = 0;
   for (let d = 1; d <= 9; d++) if (mask & (1 << d)) n++;
   return n;
-}
-
-function* kCombinations(arr: number[], k: number, start = 0): Generator<number[]> {
-  if (k === 0) { yield []; return; }
-  for (let i = start; i <= arr.length - k; i++) {
-    for (const rest of kCombinations(arr, k - 1, i + 1)) {
-      yield [arr[i], ...rest];
-    }
-  }
 }
 
 function allMutualBuddies(cells: number[], BUDDIES: readonly (readonly number[])[]): boolean {

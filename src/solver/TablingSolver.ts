@@ -1130,6 +1130,73 @@ export class TablingSolver extends AbstractSolver {
           // Encode parent pointer: cell*20+digit*2+(isOn?1:0)
           const parentEnc = c * 20 + d * 2 + (isOn ? 1 : 0);
 
+          // Dequeue-time group check: enables multi-hop group-node cascading.
+          // Cells added by add-time group checks (inside snap loop) are queued
+          // but when dequeued only follow snap entries. This dequeue-time check
+          // ensures they also trigger their own group implications (cascading).
+          if (groupsByDigit) {
+            if (isOn) {
+              // C is ON for d: if C sees ALL cells of group G → G is forced OFF
+              //   → sole remaining d-cell in G's house is forced ON.
+              for (const g of groupsByDigit[d]) {
+                if (g.cells.includes(c)) continue;
+                if (!g.cells.every(gc => Sudoku2.BUDDIES[gc].includes(c))) continue;
+                const gDist = dist + 1;
+                for (const hIdx of [
+                  ...(g.row >= 0 ? [g.row] : []),
+                  ...(g.col >= 0 ? [9 + g.col] : []),
+                  18 + g.block,
+                ]) {
+                  const rem = (HOUSE_CELLS[hIdx] as number[]).filter(
+                    hc => !g.cells.includes(hc) && s.values[hc] === 0 && s.isCandidate(hc, d),
+                  );
+                  if (rem.length === 1) {
+                    const gk = rem[0] * 10 + d;
+                    if (dest.addSet(rem[0], d)) {
+                      dest.minDistOn[gk] = gDist;
+                      dest.pathVisitsPremiseOn[gk] = childPvp;
+                      dest.retOn[gk] = parentEnc;
+                      queue.push({ cell: rem[0], d, isOn: true, dist: gDist, pathVisitsPremise: childPvp });
+                    }
+                  }
+                }
+              }
+            } else {
+              // C is OFF for d: H22 — if C is the sole non-group d-cell in one
+              // of G's OWN houses → G forced ON → eliminate d from G's buddies.
+              for (const g of groupsByDigit[d]) {
+                if (g.cells.includes(c)) continue;
+                for (const houseIdx of [
+                  ...(g.row >= 0 ? [g.row] : []),
+                  ...(g.col >= 0 ? [9 + g.col] : []),
+                  18 + g.block,
+                ]) {
+                  if (!(HOUSE_CELLS[houseIdx] as number[]).includes(c)) continue;
+                  const staticRem = (HOUSE_CELLS[houseIdx] as number[]).filter(
+                    hc => !g.cells.includes(hc) && s.values[hc] === 0 && s.isCandidate(hc, d),
+                  );
+                  if (staticRem.length === 1 && staticRem[0] === c) {
+                    const gDist = dist + 1;
+                    const gBuddies = g.cells.reduce(
+                      (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
+                      [...Sudoku2.BUDDIES[g.cells[0]]],
+                    ).filter(c3 => !g.cells.includes(c3));
+                    for (const bCell of gBuddies) {
+                      if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
+                      const gk = bCell * 10 + d;
+                      if (dest.addDel(bCell, d)) {
+                        dest.minDistOff[gk] = gDist;
+                        dest.pathVisitsPremiseOff[gk] = childPvp;
+                        dest.retOff[gk] = parentEnc;
+                        queue.push({ cell: bCell, d, isOn: false, dist: gDist, pathVisitsPremise: childPvp });
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+
           const srcSnap = isOn ? onSnap[c * 10 + d] : offSnap[c * 10 + d];
           for (const { cell: c2, d: d2, isOn: isOn2 } of srcSnap) {
             const newDist = dist + 1;
