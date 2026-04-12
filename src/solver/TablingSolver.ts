@@ -88,6 +88,11 @@ class TableEntry {
    *  Only meaningful when used via _expandTablesWithGroups. */
   readonly groupFiredOff: Uint8Array = new Uint8Array(TABLE_SIZE);
 
+  /** Group cells for group-fired ON entries. Keyed by ti = cell*10+digit. */
+  readonly groupNodeCellsOn:  Map<number, number[]> = new Map();
+  /** Group cells for group-fired OFF entries. Keyed by ti = cell*10+digit. */
+  readonly groupNodeCellsOff: Map<number, number[]> = new Map();
+
   private _populated = false;
   get populated(): boolean { return this._populated; }
 
@@ -105,6 +110,8 @@ class TableEntry {
     this.retOff.fill(-1);
     this.groupFiredOn.fill(0);
     this.groupFiredOff.fill(0);
+    this.groupNodeCellsOn.clear();
+    this.groupNodeCellsOff.clear();
   }
 
   addSet(cell: number, d: number): boolean {
@@ -322,6 +329,7 @@ export class TablingSolver extends AbstractSolver {
     this._collectNiceLoops(this._offTable, true, candidates);
     this._collectAics(this._offTable, candidates);
     if (candidates.length === 0) return null;
+
     candidates.sort(_compareSteps);
 
     const step = candidates[0].step;
@@ -395,6 +403,7 @@ export class TablingSolver extends AbstractSolver {
           dest.minDistOn[remaining[0] * 10 + d] = tDist;
           dest.retOn[remaining[0] * 10 + d] = triggerEnc;
           dest.groupFiredOn[remaining[0] * 10 + d] = 1;
+          dest.groupNodeCellsOn.set(remaining[0] * 10 + d, [...g.cells]);
           this._groupImplicationFired = true;
           queue.push({ cell: remaining[0], d, isOn: true, dist: tDist });
         } else if (remaining.length > 1) {
@@ -416,6 +425,7 @@ export class TablingSolver extends AbstractSolver {
                 dest.minDistOff[bCell * 10 + d] = tDist;
                 dest.retOff[bCell * 10 + d] = triggerEnc;
                 dest.groupFiredOff[bCell * 10 + d] = 1;
+                dest.groupNodeCellsOff.set(bCell * 10 + d, [...g2.cells]);
                 this._groupImplicationFired = true;
                 queue.push({ cell: bCell, d, isOn: false, dist: tDist });
                 // Java does not cascade checkGroupOff from H21 g2g inside checkGroupOff.
@@ -452,6 +462,13 @@ export class TablingSolver extends AbstractSolver {
           else      { dest.minDistOff[key] = 1; dest.retOff[key] = -1; }
         }
 
+        // Mark the premise itself in onSets/offSets so that BFS expansion cannot
+        // re-discover it. Java adds the premise as the first table entry (fillTables
+        // line 1860-1861), which automatically prevents duplicates via addEntry's
+        // dedup check. We add after snap building to avoid polluting the snap arrays.
+        if (table === onTable) dest.onSets[premiseD].add(premiseCi);
+        else                   dest.offSets[premiseD].add(premiseCi);
+
         // Process group implications of the premise cell itself — matches Java's
         // fillTablesWithGroupNodes which also processes the premise as a starting point.
         // The BFS below skips the premise cell to prevent loops, so group effects
@@ -476,6 +493,7 @@ export class TablingSolver extends AbstractSolver {
                 dest.minDistOn[rem[0] * 10 + premiseD] = gOffDist;
                 dest.retOn[rem[0] * 10 + premiseD] = premiseEnc;
                 dest.groupFiredOn[rem[0] * 10 + premiseD] = 1;
+                dest.groupNodeCellsOn.set(rem[0] * 10 + premiseD, [...g.cells]);
                 this._groupImplicationFired = true;
                 queue2.push({ cell: rem[0], d: premiseD, isOn: true, dist: gOffDist });
               } else if (rem.length > 1) {
@@ -494,6 +512,7 @@ export class TablingSolver extends AbstractSolver {
                       dest.minDistOff[bCell * 10 + premiseD] = gOffDist;
                       dest.retOff[bCell * 10 + premiseD] = premiseEnc;
                       dest.groupFiredOff[bCell * 10 + premiseD] = 1;
+                      dest.groupNodeCellsOff.set(bCell * 10 + premiseD, [...g2.cells]);
                       this._groupImplicationFired = true;
                       queue2.push({ cell: bCell, d: premiseD, isOn: false, dist: gOffDist });
                     }
@@ -527,6 +546,7 @@ export class TablingSolver extends AbstractSolver {
                     dest.minDistOff[bCell * 10 + premiseD] = gTriggeredDist;
                     dest.retOff[bCell * 10 + premiseD] = premiseEnc;
                     dest.groupFiredOff[bCell * 10 + premiseD] = 1;
+                    dest.groupNodeCellsOff.set(bCell * 10 + premiseD, [...g.cells]);
                     this._groupImplicationFired = true;
                     queue2.push({ cell: bCell, d: premiseD, isOn: false, dist: gTriggeredDist });
                   }
@@ -565,6 +585,7 @@ export class TablingSolver extends AbstractSolver {
                   dest.minDistOn[rem[0] * 10 + d] = gOffDist;
                   dest.retOn[rem[0] * 10 + d] = parentEnc;
                   dest.groupFiredOn[rem[0] * 10 + d] = 1;
+                  dest.groupNodeCellsOn.set(rem[0] * 10 + d, [...g.cells]);
                   this._groupImplicationFired = true;
                   queue2.push({ cell: rem[0], d, isOn: true, dist: gOffDist });
                 } else if (rem.length > 1) {
@@ -584,6 +605,7 @@ export class TablingSolver extends AbstractSolver {
                         dest.minDistOff[bCell * 10 + d] = gOffDist;
                         dest.retOff[bCell * 10 + d] = parentEnc;
                         dest.groupFiredOff[bCell * 10 + d] = 1;
+                        dest.groupNodeCellsOff.set(bCell * 10 + d, [...g2.cells]);
                         this._groupImplicationFired = true;
                         queue2.push({ cell: bCell, d, isOn: false, dist: gOffDist });
                         // Java does not cascade checkGroupOff from H21 g2g.
@@ -621,6 +643,7 @@ export class TablingSolver extends AbstractSolver {
                       dest.minDistOff[bCell * 10 + d] = gTriggeredDist;
                       dest.retOff[bCell * 10 + d] = parentEnc;
                       dest.groupFiredOff[bCell * 10 + d] = 1;
+                      dest.groupNodeCellsOff.set(bCell * 10 + d, [...g.cells]);
                       this._groupImplicationFired = true;
                       queue2.push({ cell: bCell, d, isOn: false, dist: gTriggeredDist });
                     }
@@ -663,6 +686,7 @@ export class TablingSolver extends AbstractSolver {
                       dest.minDistOn[rem[0] * 10 + d2] = gOffDist;
                       dest.retOn[rem[0] * 10 + d2] = c2Enc;
                       dest.groupFiredOn[rem[0] * 10 + d2] = 1;
+                      dest.groupNodeCellsOn.set(rem[0] * 10 + d2, [...g.cells]);
                       this._groupImplicationFired = true;
                       queue2.push({ cell: rem[0], d: d2, isOn: true, dist: gOffDist });
                     } else if (rem.length > 1) {
@@ -682,6 +706,7 @@ export class TablingSolver extends AbstractSolver {
                             dest.minDistOff[bCell * 10 + d2] = gOffDist;
                             dest.retOff[bCell * 10 + d2] = c2Enc;
                             dest.groupFiredOff[bCell * 10 + d2] = 1;
+                            dest.groupNodeCellsOff.set(bCell * 10 + d2, [...g2.cells]);
                             this._groupImplicationFired = true;
                             queue2.push({ cell: bCell, d: d2, isOn: false, dist: gOffDist });
                             // Java does not cascade checkGroupOff from H21 g2g in snap loop.
@@ -734,6 +759,7 @@ export class TablingSolver extends AbstractSolver {
                             dest.minDistOff[bCell * 10 + d2] = gTriggeredDist;
                             dest.retOff[bCell * 10 + d2] = c2Enc;
                             dest.groupFiredOff[bCell * 10 + d2] = 1;
+                            dest.groupNodeCellsOff.set(bCell * 10 + d2, [...g.cells]);
                             this._groupImplicationFired = true;
                             queue2.push({ cell: bCell, d: d2, isOn: false, dist: gTriggeredDist });
                           }
@@ -1088,6 +1114,13 @@ export class TablingSolver extends AbstractSolver {
           }
         }
 
+        // Mark the premise itself in onSets/offSets so that BFS expansion cannot
+        // re-discover it. Java adds the premise as the first table entry (fillTables
+        // line 1860-1861), which automatically prevents duplicates via addEntry's
+        // dedup check. We add after snap building to avoid polluting the snap arrays.
+        if (table === onTable) dest.onSets[premiseD].add(premiseCi);
+        else                   dest.offSets[premiseD].add(premiseCi);
+
         let qi = 0;
         while (qi < queue.length) {
           const { cell: c, d, isOn, dist, pathVisitsPremise: pvp } = queue[qi++];
@@ -1271,6 +1304,13 @@ export class TablingSolver extends AbstractSolver {
    * regular steps that happen to appear in a grouped table.
    */
   private _chainUsesGroupNode(entry: TableEntry, ci: number, endD: number, endIsOn: boolean): boolean {
+    // Must also pass the same lasso/validity check as non-grouped chains
+    const key0 = ci * 10 + endD;
+    const parent = endIsOn ? entry.retOn[key0] : entry.retOff[key0];
+    if (parent === -1) return false;
+    if (!this._buildAndCheckLasso(entry, ci, parent)) return false;
+
+    // Then verify the chain actually uses a group-triggered step
     let curCell = ci, curD = endD, curIsOn = endIsOn;
     for (let steps = 0; steps < 200; steps++) {
       const key = curCell * 10 + curD;
@@ -1339,8 +1379,8 @@ export class TablingSolver extends AbstractSolver {
   private _reconstructChain(
     entry: TableEntry, endCell: number, endD: number, endIsOn: boolean,
     premiseCell: number, premiseCand: number,
-  ): { cell: number; d: number; isOn: boolean }[] | null {
-    const backward: { cell: number; d: number; isOn: boolean }[] = [
+  ): { cell: number; d: number; isOn: boolean; groupCells?: number[] }[] | null {
+    const backward: { cell: number; d: number; isOn: boolean; groupCells?: number[] }[] = [
       { cell: endCell, d: endD, isOn: endIsOn },
     ];
     let curCell = endCell, curD = endD, curIsOn = endIsOn;
@@ -1351,6 +1391,13 @@ export class TablingSolver extends AbstractSolver {
       const pc = (par / 20) | 0;
       const pd = ((par % 20) >> 1);
       const pIsOn = (par & 1) === 1;
+      // If this node was reached via a group hop, insert a GROUP_NODE.
+      const gCells = curIsOn
+        ? entry.groupNodeCellsOn.get(k)
+        : entry.groupNodeCellsOff.get(k);
+      if (gCells) {
+        backward.push({ cell: -1, d: curD, isOn: !pIsOn, groupCells: gCells });
+      }
       backward.push({ cell: pc, d: pd, isOn: pIsOn });
       curCell = pc;
       curD = pd;
@@ -1369,7 +1416,7 @@ export class TablingSolver extends AbstractSolver {
    * - Weak link between cells → eliminate candidate from common buddies
    */
   private _cnlEliminations(
-    chain: { cell: number; d: number; isOn: boolean }[],
+    chain: { cell: number; d: number; isOn: boolean; groupCells?: number[] }[],
     premiseCell: number, premiseCand: number, endCand: number,
     firstLinkStrong: boolean, lastLinkStrong: boolean,
   ): Candidate[] {
@@ -1384,10 +1431,36 @@ export class TablingSolver extends AbstractSolver {
       }
     };
 
-    // Java's tmpSetC: the set of ALL cells in the chain. Used to exclude chain cells
-    // from peer eliminations (tmpSet.andNot(tmpSetC) in Java's checkNiceLoop).
+    // Helper: check if a cell is a buddy of a chain node (handles GROUP_NODE).
+    const isNodeBuddy = (node: typeof chain[0], cell: number): boolean => {
+      if (node.cell === -1 && node.groupCells) {
+        return !node.groupCells.includes(cell)
+            && node.groupCells.every(gc => BUDDY_SETS[gc].has(cell));
+      }
+      return BUDDY_SETS[node.cell].has(cell);
+    };
+
+    // Helper: iterate buddies of a chain node (handles GROUP_NODE).
+    const nodeBuddies = (node: typeof chain[0]): readonly number[] => {
+      if (node.cell === -1 && node.groupCells) {
+        const gc0 = node.groupCells[0];
+        return Sudoku2.BUDDIES[gc0].filter(b =>
+          !node.groupCells!.includes(b)
+          && node.groupCells!.slice(1).every(gc => BUDDY_SETS[gc].has(b)),
+        );
+      }
+      return Sudoku2.BUDDIES[node.cell];
+    };
+
+    // Java's tmpSetC: the set of ALL cells in the chain (including group node cells).
     const chainCells = new Set<number>();
-    for (const node of chain) chainCells.add(node.cell);
+    for (const node of chain) {
+      if (node.cell === -1 && node.groupCells) {
+        for (const gc of node.groupCells) chainCells.add(gc);
+      } else {
+        chainCells.add(node.cell);
+      }
+    }
 
     // The chain starts at premiseCell. In Java's nlChain representation:
     // nlChain[0] = start node  (premise)
@@ -1446,6 +1519,7 @@ export class TablingSolver extends AbstractSolver {
     // chain[i+1] must be in same cell (weak within cell), then chain[i+2] must have strong (isOn=true)
     // and be in a different cell
     for (let i = 1; i <= n - 3; i++) {
+      if (chain[i].cell === -1) continue; // skip GROUP_NODE
       if (!chain[i].isOn) continue; // arrival must be strong
       if (chain[i + 1].cell !== chain[i].cell) continue; // next must be same cell (within-cell link)
       if (!chain[i + 1].isOn) {
@@ -1470,17 +1544,14 @@ export class TablingSolver extends AbstractSolver {
 
     // Check weak between-cell links:
     // A weak link between cells at node i: !isOn (weak arrival) and different cell from previous
-    // Java: tmpSet.and(buddies[i-1]).and(buddies[i]).andNot(tmpSetC).remove(startIndex).and(candidates[d])
-    //   where tmpSetC contains all chain cells. We replicate by checking !chainCells.has(buddy).
+    // Java: tmpSet.and(getSNodeBuddies(i-1)).and(getSNodeBuddies(i)).andNot(tmpSetC).remove(startIndex).and(candidates[d])
     for (let i = 1; i < n; i++) {
       if (chain[i].isOn) continue; // must be weak arrival
-      if (chain[i].cell === chain[i - 1].cell) continue; // must be between cells
+      // Must be between cells. For GROUP_NODE (cell=-1), always considered between-cell.
+      if (chain[i].cell >= 0 && chain[i].cell === chain[i - 1].cell) continue;
       const actCand = chain[i].d;
-      // Eliminate actCand from common buddies of chain[i-1].cell and chain[i].cell,
-      // excluding ALL chain cells (Java's tmpSetC) and the premise cell.
-      for (const buddy of Sudoku2.BUDDIES[chain[i - 1].cell]) {
-        if (!chainCells.has(buddy)
-            && BUDDY_SETS[chain[i].cell].has(buddy)) {
+      for (const buddy of nodeBuddies(chain[i - 1])) {
+        if (!chainCells.has(buddy) && isNodeBuddy(chain[i], buddy)) {
           addDel(buddy, actCand);
         }
       }
@@ -1491,7 +1562,7 @@ export class TablingSolver extends AbstractSolver {
     // If last link is weak (and between cells):
     if (!lastLinkStrong && chain[n - 1].cell !== premiseCell) {
       const closingCand = endCand;
-      for (const buddy of Sudoku2.BUDDIES[chain[n - 1].cell]) {
+      for (const buddy of nodeBuddies(chain[n - 1])) {
         if (!chainCells.has(buddy)
             && BUDDY_SETS[premiseCell].has(buddy)) {
           addDel(buddy, closingCand);
@@ -1500,11 +1571,10 @@ export class TablingSolver extends AbstractSolver {
     }
 
     // And if first link is weak (between cells):
-    if (!firstLinkStrong && chain[1].cell !== premiseCell) {
+    if (!firstLinkStrong && (chain[1].cell === -1 || chain[1].cell !== premiseCell)) {
       const actCand = chain[1].d;
       for (const buddy of Sudoku2.BUDDIES[premiseCell]) {
-        if (!chainCells.has(buddy)
-            && BUDDY_SETS[chain[1].cell].has(buddy)) {
+        if (!chainCells.has(buddy) && isNodeBuddy(chain[1], buddy)) {
           addDel(buddy, actCand);
         }
       }
@@ -1558,7 +1628,7 @@ export class TablingSolver extends AbstractSolver {
           if (d2 !== d && entry.offSets[d2].has(ci) && s.isCandidate(ci, d2)
               && s.getCandidates(ci).length === 2) {
             const dist = entry.minDistOff[ci * 10 + d2];
-            if (dist > 2 && !grouped && this._chainIsValid(entry, ci, d2, false)) {
+            if (dist > 2 && (grouped ? this._chainUsesGroupNode(entry, ci, d2, false) : this._chainIsValid(entry, ci, d2, false))) {
               const chain = this._reconstructChain(entry, ci, d2, false, ci, d);
               if (chain) {
                 const dels = this._cnlEliminations(chain, ci, d, d2, false, false);
@@ -1574,7 +1644,7 @@ export class TablingSolver extends AbstractSolver {
         // Java: (firstLinkStrong != lastLinkStrong && startCand == endCand) → firstStrong=false, lastStrong=true
         if (entry.onSets[d].has(ci)) {
           const dist = entry.minDistOn[ci * 10 + d];
-          if (dist > 2 && !grouped && this._chainIsValid(entry, ci, d, true)) {
+          if (dist > 2 && (grouped ? this._chainUsesGroupNode(entry, ci, d, true) : this._chainIsValid(entry, ci, d, true))) {
             const chain = this._reconstructChain(entry, ci, d, true, ci, d);
             if (chain) {
               const dels = this._cnlEliminations(chain, ci, d, d, false, true);
@@ -1625,7 +1695,7 @@ export class TablingSolver extends AbstractSolver {
         // Java: (firstLinkStrong != lastLinkStrong && startCand == endCand) → firstStrong=true, lastStrong=false
         if (entry.offSets[d].has(ci)) {
           const dist = entry.minDistOff[ci * 10 + d];
-          if (dist > 2 && !grouped && this._chainIsValid(entry, ci, d, false)) {
+          if (dist > 2 && (grouped ? this._chainUsesGroupNode(entry, ci, d, false) : this._chainIsValid(entry, ci, d, false))) {
             const chain = this._reconstructChain(entry, ci, d, false, ci, d);
             if (chain) {
               const dels = this._cnlEliminations(chain, ci, d, d, true, false);
@@ -1641,7 +1711,7 @@ export class TablingSolver extends AbstractSolver {
         for (let d2 = 1; d2 <= 9; d2++) {
           if (d2 !== d && entry.onSets[d2].has(ci)) {
             const dist = entry.minDistOn[ci * 10 + d2];
-            if (dist > 2 && !grouped && this._chainIsValid(entry, ci, d2, true)) {
+            if (dist > 2 && (grouped ? this._chainUsesGroupNode(entry, ci, d2, true) : this._chainIsValid(entry, ci, d2, true))) {
               const chain = this._reconstructChain(entry, ci, d2, true, ci, d);
               if (chain) {
                 const dels = this._cnlEliminations(chain, ci, d, d2, true, true);
