@@ -196,8 +196,9 @@ export class WingSolver extends AbstractSolver {
           if (mi & (1 << d)) { if (!c1) c1 = d; else c2 = d; }
         }
 
-        // Try both candidate roles as the "bridge" candidate
-        for (const [bridge, elim] of [[c1, c2], [c2, c1]] as [number, number][]) {
+        // Try both candidate roles as the "bridge" candidate.
+        // Java order: first checkLink(cand1,cand2) → bridge=cand2(larger), elim=cand1(smaller)
+        for (const [bridge, elim] of [[c2, c1], [c1, c2]] as [number, number][]) {
           // Find a house where bridge appears exactly twice (strong link).
           // Mirrors Java's free[constr][cand2] == 2: count includes ci/cj if present.
           // If ci or cj is one of the two bridge cells it is not a valid W-Wing.
