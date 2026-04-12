@@ -6,5 +6,10 @@ export const generate = () =>{
   q.setRecordHistory(false)
   q.setPrintStyle(qqwingLib.PrintStyle.ONE_LINE)
   q.generatePuzzle()
-  return q.getPuzzleString().trim()
+  q.setRecordHistory(true)
+  q.solve()
+  q.setRecordHistory(false)
+  return { sudoku: q.getPuzzleString().trim(), difficulty: q.getDifficulty()}
 }
+
+export const difficultyOptions = Object.keys(qqwingLib.Difficulty)
