@@ -562,10 +562,39 @@ export class TablingSolver extends AbstractSolver {
           if (c === premiseCi && d === premiseD) continue;
           const parentEnc = c * 20 + d * 2 + (isOn ? 1 : 0);
 
+          // Snap expansion runs FIRST (dist+1), so shorter direct-snap paths are
+          // stored before group-hop paths (dist+2) can block them.
+          // This matches Java's expandTables ordering: direct snap entries in the table
+          // are at lower indices than group entries, so they're always processed first.
+          const srcTi = c * 10 + d;
+          const srcSnap = isOn ? onSnap[srcTi] : offSnap[srcTi];
+
+          for (const { cell: c2, d: d2, isOn: isOn2 } of srcSnap) {
+            const newDist = dist + 1;
+            if (isOn2) {
+              if (dest.addSet(c2, d2)) {
+                dest.minDistOn[c2 * 10 + d2] = newDist;
+                dest.retOn[c2 * 10 + d2] = parentEnc;
+                queue2.push({ cell: c2, d: d2, isOn: true, dist: newDist });
+                // Group implications for c2 ON are handled by the dequeue-time group
+                // check (below) when c2 is processed from the queue. This ensures that
+                // direct snap paths (dist+1) are stored before group-hop paths (dist+2)
+                // can overwrite them when c2 is dequeued — matching Java's index ordering.
+              }
+            } else {
+              if (dest.addDel(c2, d2)) {
+                dest.minDistOff[c2 * 10 + d2] = newDist;
+                dest.retOff[c2 * 10 + d2] = parentEnc;
+                queue2.push({ cell: c2, d: d2, isOn: false, dist: newDist });
+                // H22 implications for c2 OFF are handled by the dequeue-time group check.
+              }
+            }
+          }
+
           // Dequeue-time group check — equivalent to Java's expandTables processing
           // GROUP_NODE entries in each cell's table (pre-loaded by fillTablesWithGroupNodes).
-          // Fires for EVERY dequeued item (whether from initial snap, snap-derived, or
-          // group-derived), enabling multi-hop group-node chains to cascade correctly.
+          // Fires AFTER snap expansion so that shorter direct-snap paths (dist+1) are
+          // stored first; group-hop paths (dist+2) are rejected if already stored.
           if (isOn) {
             // C is ON for d: if C sees ALL cells of group G → G is forced OFF
             //   → sole remaining d-cell in G's house is forced ON.
@@ -646,125 +675,6 @@ export class TablingSolver extends AbstractSolver {
                       dest.groupNodeCellsOff.set(bCell * 10 + d, [...g.cells]);
                       this._groupImplicationFired = true;
                       queue2.push({ cell: bCell, d, isOn: false, dist: gTriggeredDist });
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          const srcTi = c * 10 + d;
-          const srcSnap = isOn ? onSnap[srcTi] : offSnap[srcTi];
-
-          for (const { cell: c2, d: d2, isOn: isOn2 } of srcSnap) {
-            const newDist = dist + 1;
-            if (isOn2) {
-              if (dest.addSet(c2, d2)) {
-                dest.minDistOn[c2 * 10 + d2] = newDist;
-                dest.retOn[c2 * 10 + d2] = parentEnc;
-                queue2.push({ cell: c2, d: d2, isOn: true, dist: newDist });
-                // Java Phase 2 equivalent: C ON for d2 → GROUP G OFF.
-                // For each group G that c2 is a buddy of (same digit d2),
-                // compute GROUP G OFF implications (solo cell ON in each house).
-                for (const g of groupsByDigit[d2]) {
-                  if (g.cells.includes(c2)) continue;
-                  // c2 must actually see ALL cells of the group to trigger GROUP OFF.
-                  if (!g.cells.every(gc => Sudoku2.BUDDIES[gc].includes(c2))) continue;
-                  // GROUP G is OFF: for each house of G, find solo non-group cell.
-                  const gOffDist = newDist + 2;
-                  const c2Enc = c2 * 20 + d2 * 2 + 1; // c2 ON for d2
-                  for (const hIdx of [
-                    ...(g.row >= 0 ? [g.row] : []),
-                    ...(g.col >= 0 ? [9 + g.col] : []),
-                    18 + g.block,
-                  ]) {
-                    const rem = (HOUSE_CELLS[hIdx] as number[]).filter(
-                      hc => !g.cells.includes(hc) && s.values[hc] === 0
-                         && s.isCandidate(hc, d2),
-                    );
-                    if (rem.length === 1 && dest.addSet(rem[0], d2)) {
-                      dest.minDistOn[rem[0] * 10 + d2] = gOffDist;
-                      dest.retOn[rem[0] * 10 + d2] = c2Enc;
-                      dest.groupFiredOn[rem[0] * 10 + d2] = 1;
-                      dest.groupNodeCellsOn.set(rem[0] * 10 + d2, [...g.cells]);
-                      this._groupImplicationFired = true;
-                      queue2.push({ cell: rem[0], d: d2, isOn: true, dist: gOffDist });
-                    } else if (rem.length > 1) {
-                      // H21: static group-to-group link. Fires only when ALL static d2-candidates
-                      // in house (excluding G) form exactly G2 - matches Java's static pre-computation.
-                      const g2 = groupsByDigit[d2].find(
-                        gn => gn !== g && gn.cells.length === rem.length
-                           && rem.every(hc => gn.cells.includes(hc)));
-                      if (g2) {
-                        const g2Buddies = g2.cells.reduce(
-                          (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
-                          [...Sudoku2.BUDDIES[g2.cells[0]]],
-                        ).filter(c3 => !g2.cells.includes(c3));
-                        for (const bCell of g2Buddies) {
-                          if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d2) || dest.offSets[d2].has(bCell)) continue;
-                          if (dest.addDel(bCell, d2)) {
-                            dest.minDistOff[bCell * 10 + d2] = gOffDist;
-                            dest.retOff[bCell * 10 + d2] = c2Enc;
-                            dest.groupFiredOff[bCell * 10 + d2] = 1;
-                            dest.groupNodeCellsOff.set(bCell * 10 + d2, [...g2.cells]);
-                            this._groupImplicationFired = true;
-                            queue2.push({ cell: bCell, d: d2, isOn: false, dist: gOffDist });
-                            // Java does not cascade checkGroupOff from H21 g2g in snap loop.
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            } else {
-              if (dest.addDel(c2, d2)) {
-                dest.minDistOff[c2 * 10 + d2] = newDist;
-                dest.retOff[c2 * 10 + d2] = parentEnc;
-                queue2.push({ cell: c2, d: d2, isOn: false, dist: newDist });
-                // [Java Phase 2 equivalent] Group-OFF check is NOT done here.
-                // In Java, GROUP OFF is only reached via a buddy cell going ON
-                // (bidirectional link in Phase 2). In TS, we add those links
-                // to the snapshot pre-BFS instead of using an aggregate trigger.
-                // H22: Singleton-OFF -> Group-ON: if c2's elimination makes
-                // group g the sole source of d2 in ONE OF G'S OWN houses.
-                // Restricted to G's own houses to match Java's static pre-computation
-                // in fillTablesWithGroupNodes (only gn.block/gn.line/gn.col).
-                {
-                  const c2Enc = c2 * 20 + d2 * 2 + 0; // c2 OFF for d2
-                  for (const g of groupsByDigit[d2]) {
-                    if (g.cells.includes(c2)) continue;
-                    for (const houseIdx of [
-                      ...(g.row >= 0 ? [g.row] : []),
-                      ...(g.col >= 0 ? [9 + g.col] : []),
-                      18 + g.block,
-                    ]) {
-                      if (!(HOUSE_CELLS[houseIdx] as number[]).includes(c2)) continue;
-                      // Static trigger: count ALL non-group cells with d2 in house.
-                      const staticRem = (HOUSE_CELLS[houseIdx] as number[]).filter(
-                        hc => !g.cells.includes(hc) && s.values[hc] === 0
-                           && s.isCandidate(hc, d2),
-                      );
-                      if (staticRem.length === 1 && staticRem[0] === c2) {
-                        // G forced ON - delete d2 from cells that see all of G.
-                        const gTriggeredDist = newDist + 2;
-                        // Use full BUDDIES intersection to match Java GroupNode.buddies.
-                        const gBuddies = g.cells.reduce(
-                          (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
-                          [...Sudoku2.BUDDIES[g.cells[0]]],
-                        ).filter(c3 => !g.cells.includes(c3));
-                        for (const bCell of gBuddies) {
-                          if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d2) || dest.offSets[d2].has(bCell)) continue;
-                          if (dest.addDel(bCell, d2)) {
-                            dest.minDistOff[bCell * 10 + d2] = gTriggeredDist;
-                            dest.retOff[bCell * 10 + d2] = c2Enc;
-                            dest.groupFiredOff[bCell * 10 + d2] = 1;
-                            dest.groupNodeCellsOff.set(bCell * 10 + d2, [...g.cells]);
-                            this._groupImplicationFired = true;
-                            queue2.push({ cell: bCell, d: d2, isOn: false, dist: gTriggeredDist });
-                          }
-                        }
-                      }
                     }
                   }
                 }
