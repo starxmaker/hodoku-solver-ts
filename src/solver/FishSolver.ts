@@ -178,7 +178,8 @@ export class FishSolver extends AbstractSolver {
         if (allCrossing.size < size || allCrossing.size > size + 4) continue;
 
         // Try all size-subsets of allCrossing as cover cols
-        const crossArr = [...allCrossing];
+        // Sort ascending to match Java's unit-index ordering (rows/cols 0→8)
+        const crossArr = [...allCrossing].sort((a, b) => a - b);
         for (const coverCombo of kCombos(crossArr, size)) {
           const coverSet = new Set(coverCombo);
 
@@ -454,7 +455,7 @@ export class FishSolver extends AbstractSolver {
             for (const e of baseCombo) for (const c of e.occ) allCrossing.add(c);
             if (allCrossing.size < size || allCrossing.size > size + 4) continue;
 
-            const crossArr = [...allCrossing];
+            const crossArr = [...allCrossing].sort((a, b) => a - b);
             for (const coverCombo of kCombos(crossArr, size)) {
               const coverSet = new Set(coverCombo);
 
