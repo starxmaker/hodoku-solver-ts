@@ -374,75 +374,83 @@ export class TablingSolver extends AbstractSolver {
 
     const s = this.sudoku;
 
-    // Inline helper: if group g is fully OFF in dest (for digit d), find the
-    // sole remaining d-cell in each of g's houses and force it ON.
-    const checkGroupOff = (
-      g: GroupNode,
-      dest: TableEntry,
-      queue: GQEntry[],
-      triggerEnc: number,
-    ): void => {
-      const d = g.digit;
-      // All group cells must be in offSets[d].
-      if (!g.cells.every(c => dest.offSets[d].has(c))) return;
-
-      // Compute group-OFF distance as max of individual cell OFF distances.
-      let groupDist = 0;
-      for (const c of g.cells) {
-        const cd = dest.minDistOff[c * 10 + d] || 1;
-        if (cd > groupDist) groupDist = cd;
-      }
-      const tDist = groupDist + 1;
-
-      // Group is fully OFF � check for solo positions and group-to-group links.
-      const solveHouse = (houseIdx: number): void => {
-        const remaining: number[] = (HOUSE_CELLS[houseIdx] as number[]).filter(
-          c => !g.cells.includes(c) && s.values[c] === 0 && s.isCandidate(c, d),
-        );
-        if (remaining.length === 1 && dest.addSet(remaining[0], d)) {
-          dest.minDistOn[remaining[0] * 10 + d] = tDist;
-          dest.retOn[remaining[0] * 10 + d] = triggerEnc;
-          dest.groupFiredOn[remaining[0] * 10 + d] = 1;
-          dest.groupNodeCellsOn.set(remaining[0] * 10 + d, [...g.cells]);
-          this._groupImplicationFired = true;
-          queue.push({ cell: remaining[0], d, isOn: true, dist: tDist });
-        } else if (remaining.length > 1) {
-          // H21: static group-to-group link (matches Java fillTablesWithGroupNodes).
-          // Fires only when ALL static d-candidates in house (excluding G) form exactly G2.
-          const g2 = groupsByDigit[d].find(
-            gn => gn !== g && gn.cells.length === remaining.length
-               && remaining.every(c => gn.cells.includes(c)),
-          );
-          if (g2) {
-            // G2 is forced ON: delete d from ALL cells that see every cell of G2.
-            const g2Buddies = g2.cells.reduce(
-              (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
-              [...Sudoku2.BUDDIES[g2.cells[0]]],
-            ).filter(c3 => !g2.cells.includes(c3));
-            for (const bCell of g2Buddies) {
-              if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
-              if (dest.addDel(bCell, d)) {
-                dest.minDistOff[bCell * 10 + d] = tDist;
-                dest.retOff[bCell * 10 + d] = triggerEnc;
-                dest.groupFiredOff[bCell * 10 + d] = 1;
-                dest.groupNodeCellsOff.set(bCell * 10 + d, [...g2.cells]);
-                this._groupImplicationFired = true;
-                queue.push({ cell: bCell, d, isOn: false, dist: tDist });
-                // Java does not cascade checkGroupOff from H21 g2g inside checkGroupOff.
-              }
-            }
-          }
-        }
-      };
-      if (g.row >= 0)  solveHouse(g.row);
-      if (g.col >= 0)  solveHouse(9 + g.col);
-      solveHouse(18 + g.block);
-    };
-
     // Build per-digit group lookup for efficiency.
     const groupsByDigit: GroupNode[][] = Array.from({ length: 10 }, () => []);
     for (const g of groups) groupsByDigit[g.digit].push(g);
 
+    // Precompute static group-related data for fast BFS group checks.
+    // gBuddies[gi]: common buddies of group gi cells, excluding group members.
+    const gBuddies: number[][] = groups.map(g =>
+      g.cells.reduce(
+        (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
+        [...Sudoku2.BUDDIES[g.cells[0]]],
+      ).filter(c => !g.cells.includes(c))
+    );
+
+    // groupHouseInfos[gi]: per-house info for group gi. rem = static remaining
+    // non-group d-candidates (based on current sudoku state). g2Idx = index of
+    // matching H21 partner group in groups[], or -1 if none.
+    type HouseInfo = { hIdx: number; rem: number[]; g2Idx: number };
+    const groupHouseInfos: HouseInfo[][] = groups.map((g) => {
+      const infos: HouseInfo[] = [];
+      const hIdxList: number[] = [];
+      if (g.row >= 0) hIdxList.push(g.row);
+      if (g.col >= 0) hIdxList.push(9 + g.col);
+      hIdxList.push(18 + g.block);
+      for (const hIdx of hIdxList) {
+        const rem = (HOUSE_CELLS[hIdx] as number[]).filter(
+          hc => !g.cells.includes(hc) && s.values[hc] === 0 && s.isCandidate(hc, g.digit),
+        );
+        let g2Idx = -1;
+        if (rem.length > 1) {
+          const found = groupsByDigit[g.digit].find(
+            gn => gn !== g && gn.cells.length === rem.length && rem.every(hc => gn.cells.includes(hc)),
+          );
+          if (found) g2Idx = groups.indexOf(found);
+        }
+        infos.push({ hIdx, rem, g2Idx });
+      }
+      return infos;
+    });
+
+    // cellSeesGroupIdxs.get(c * 10 + d): indices into groups[] of all groups for
+    // digit d that cell c sees (c is buddy of every group cell, c not in group).
+    // Used in H21 (ON -> group OFF -> sole cell ON) expansion.
+    // Built by intersecting buddy sets (much faster than scanning all 81 cells).
+    const cellSeesGroupIdxs = new Map<number, number[]>();
+    for (let gi = 0; gi < groups.length; gi++) {
+      const g = groups[gi];
+      const d = g.digit;
+      // Start with buddies of g.cells[0] (excluding group cells), then intersect
+      // with buddies of each remaining group cell.
+      const seenBy = g.cells.slice(1).reduce(
+        (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
+        (Sudoku2.BUDDIES[g.cells[0]] as number[]).filter(b => !g.cells.includes(b)),
+      );
+      for (const c of seenBy) {
+        const key = c * 10 + d;
+        let arr = cellSeesGroupIdxs.get(key);
+        if (!arr) { arr = []; cellSeesGroupIdxs.set(key, arr); }
+        arr.push(gi);
+      }
+    }
+
+    // h22InfoMap.get(c * 10 + d): indices into groups[] of groups where c is the
+    // sole remaining non-group d-candidate in one of the group's own houses.
+    // Used in H22 (OFF -> group ON -> eliminate from group buddies).
+    const h22InfoMap = new Map<number, number[]>();
+    for (let gi = 0; gi < groups.length; gi++) {
+      const g = groups[gi];
+      const d = g.digit;
+      for (const info of groupHouseInfos[gi]) {
+        if (info.rem.length === 1) {
+          const key = info.rem[0] * 10 + d;
+          let arr = h22InfoMap.get(key);
+          if (!arr) { arr = []; h22InfoMap.set(key, arr); }
+          arr.push(gi);
+        }
+      }
+    }
 
     for (const [table, snap] of [[onTable, onSnap], [offTable, offSnap]] as const) {
       for (let ti = 0; ti < TABLE_SIZE; ti++) {
@@ -476,37 +484,25 @@ export class TablingSolver extends AbstractSolver {
         const premiseIsOn = (table === onTable);
         const premiseEnc  = premiseCi * 20 + premiseD * 2 + (premiseIsOn ? 1 : 0);
         if (premiseIsOn) {
-          // Premise ON: if premise sees all cells of group G → G is forced OFF.
-          for (const g of groupsByDigit[premiseD]) {
-            if (g.cells.includes(premiseCi)) continue;
-            if (!g.cells.every(gc => Sudoku2.BUDDIES[gc].includes(premiseCi))) continue;
-            const gOffDist = 2;
-            for (const hIdx of [
-              ...(g.row >= 0 ? [g.row] : []),
-              ...(g.col >= 0 ? [9 + g.col] : []),
-              18 + g.block,
-            ]) {
-              const rem = (HOUSE_CELLS[hIdx] as number[]).filter(
-                hc => !g.cells.includes(hc) && s.values[hc] === 0 && s.isCandidate(hc, premiseD),
-              );
-              if (rem.length === 1 && dest.addSet(rem[0], premiseD)) {
-                dest.minDistOn[rem[0] * 10 + premiseD] = gOffDist;
-                dest.retOn[rem[0] * 10 + premiseD] = premiseEnc;
-                dest.groupFiredOn[rem[0] * 10 + premiseD] = 1;
-                dest.groupNodeCellsOn.set(rem[0] * 10 + premiseD, [...g.cells]);
-                this._groupImplicationFired = true;
-                queue2.push({ cell: rem[0], d: premiseD, isOn: true, dist: gOffDist });
-              } else if (rem.length > 1) {
-                const g2 = groupsByDigit[premiseD].find(
-                  gn => gn !== g && gn.cells.length === rem.length
-                     && rem.every(hc => gn.cells.includes(hc)),
-                );
-                if (g2) {
-                  const g2Buddies = g2.cells.reduce(
-                    (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
-                    [...Sudoku2.BUDDIES[g2.cells[0]]],
-                  ).filter(c3 => !g2.cells.includes(c3));
-                  for (const bCell of g2Buddies) {
+          // Premise ON: use precomputed cellSeesGroupIdxs for fast lookup.
+          const seenByPremise = cellSeesGroupIdxs.get(premiseCi * 10 + premiseD);
+          if (seenByPremise) {
+            for (const gi of seenByPremise) {
+              const g = groups[gi];
+              const gOffDist = 2;
+              for (const info of groupHouseInfos[gi]) {
+                if (info.rem.length === 1) {
+                  if (dest.addSet(info.rem[0], premiseD)) {
+                    dest.minDistOn[info.rem[0] * 10 + premiseD] = gOffDist;
+                    dest.retOn[info.rem[0] * 10 + premiseD] = premiseEnc;
+                    dest.groupFiredOn[info.rem[0] * 10 + premiseD] = 1;
+                    dest.groupNodeCellsOn.set(info.rem[0] * 10 + premiseD, [...g.cells]);
+                    this._groupImplicationFired = true;
+                    queue2.push({ cell: info.rem[0], d: premiseD, isOn: true, dist: gOffDist });
+                  }
+                } else if (info.g2Idx >= 0) {
+                  const g2 = groups[info.g2Idx];
+                  for (const bCell of gBuddies[info.g2Idx]) {
                     if (s.values[bCell] !== 0 || !s.isCandidate(bCell, premiseD) || dest.offSets[premiseD].has(bCell)) continue;
                     if (dest.addDel(bCell, premiseD)) {
                       dest.minDistOff[bCell * 10 + premiseD] = gOffDist;
@@ -522,34 +518,20 @@ export class TablingSolver extends AbstractSolver {
             }
           }
         } else {
-          // Premise OFF: H22 — if premise is the sole non-group d-cell in G's house → G forced ON.
-          for (const g of groupsByDigit[premiseD]) {
-            if (g.cells.includes(premiseCi)) continue;
-            for (const houseIdx of [
-              ...(g.row >= 0 ? [g.row] : []),
-              ...(g.col >= 0 ? [9 + g.col] : []),
-              18 + g.block,
-            ]) {
-              if (!(HOUSE_CELLS[houseIdx] as number[]).includes(premiseCi)) continue;
-              const staticRem = (HOUSE_CELLS[houseIdx] as number[]).filter(
-                hc => !g.cells.includes(hc) && s.values[hc] === 0 && s.isCandidate(hc, premiseD),
-              );
-              if (staticRem.length === 1 && staticRem[0] === premiseCi) {
-                const gTriggeredDist = 2;
-                const gBuddies = g.cells.reduce(
-                  (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
-                  [...Sudoku2.BUDDIES[g.cells[0]]],
-                ).filter(c3 => !g.cells.includes(c3));
-                for (const bCell of gBuddies) {
-                  if (s.values[bCell] !== 0 || !s.isCandidate(bCell, premiseD) || dest.offSets[premiseD].has(bCell)) continue;
-                  if (dest.addDel(bCell, premiseD)) {
-                    dest.minDistOff[bCell * 10 + premiseD] = gTriggeredDist;
-                    dest.retOff[bCell * 10 + premiseD] = premiseEnc;
-                    dest.groupFiredOff[bCell * 10 + premiseD] = 1;
-                    dest.groupNodeCellsOff.set(bCell * 10 + premiseD, [...g.cells]);
-                    this._groupImplicationFired = true;
-                    queue2.push({ cell: bCell, d: premiseD, isOn: false, dist: gTriggeredDist });
-                  }
+          // Premise OFF: use precomputed h22InfoMap for fast lookup.
+          const h22Premise = h22InfoMap.get(premiseCi * 10 + premiseD);
+          if (h22Premise) {
+            for (const gi of h22Premise) {
+              const g = groups[gi];
+              for (const bCell of gBuddies[gi]) {
+                if (s.values[bCell] !== 0 || !s.isCandidate(bCell, premiseD) || dest.offSets[premiseD].has(bCell)) continue;
+                if (dest.addDel(bCell, premiseD)) {
+                  dest.minDistOff[bCell * 10 + premiseD] = 2;
+                  dest.retOff[bCell * 10 + premiseD] = premiseEnc;
+                  dest.groupFiredOff[bCell * 10 + premiseD] = 1;
+                  dest.groupNodeCellsOff.set(bCell * 10 + premiseD, [...g.cells]);
+                  this._groupImplicationFired = true;
+                  queue2.push({ cell: bCell, d: premiseD, isOn: false, dist: 2 });
                 }
               }
             }
@@ -596,39 +578,25 @@ export class TablingSolver extends AbstractSolver {
           // Fires AFTER snap expansion so that shorter direct-snap paths (dist+1) are
           // stored first; group-hop paths (dist+2) are rejected if already stored.
           if (isOn) {
-            // C is ON for d: if C sees ALL cells of group G → G is forced OFF
-            //   → sole remaining d-cell in G's house is forced ON.
-            for (const g of groupsByDigit[d]) {
-              if (g.cells.includes(c)) continue;
-              if (!g.cells.every(gc => Sudoku2.BUDDIES[gc].includes(c))) continue;
-              const gOffDist = dist + 2;
-              for (const hIdx of [
-                ...(g.row >= 0 ? [g.row] : []),
-                ...(g.col >= 0 ? [9 + g.col] : []),
-                18 + g.block,
-              ]) {
-                const rem = (HOUSE_CELLS[hIdx] as number[]).filter(
-                  hc => !g.cells.includes(hc) && s.values[hc] === 0 && s.isCandidate(hc, d),
-                );
-                if (rem.length === 1 && dest.addSet(rem[0], d)) {
-                  dest.minDistOn[rem[0] * 10 + d] = gOffDist;
-                  dest.retOn[rem[0] * 10 + d] = parentEnc;
-                  dest.groupFiredOn[rem[0] * 10 + d] = 1;
-                  dest.groupNodeCellsOn.set(rem[0] * 10 + d, [...g.cells]);
-                  this._groupImplicationFired = true;
-                  queue2.push({ cell: rem[0], d, isOn: true, dist: gOffDist });
-                } else if (rem.length > 1) {
-                  // H21: static group-to-group link. Fires only when ALL static d-candidates
-                  // in house (excluding G) form exactly G2 - matches Java's static pre-computation.
-                  const g2 = groupsByDigit[d].find(
-                    gn => gn !== g && gn.cells.length === rem.length
-                       && rem.every(hc => gn.cells.includes(hc)));
-                  if (g2) {
-                    const g2Buddies = g2.cells.reduce(
-                      (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
-                      [...Sudoku2.BUDDIES[g2.cells[0]]],
-                    ).filter(c3 => !g2.cells.includes(c3));
-                    for (const bCell of g2Buddies) {
+            // C is ON for d: use precomputed cellSeesGroupIdxs for fast group lookup.
+            const seenIdxs = cellSeesGroupIdxs.get(c * 10 + d);
+            if (seenIdxs) {
+              for (const gi of seenIdxs) {
+                const g = groups[gi];
+                const gOffDist = dist + 2;
+                for (const info of groupHouseInfos[gi]) {
+                  if (info.rem.length === 1) {
+                    if (dest.addSet(info.rem[0], d)) {
+                      dest.minDistOn[info.rem[0] * 10 + d] = gOffDist;
+                      dest.retOn[info.rem[0] * 10 + d] = parentEnc;
+                      dest.groupFiredOn[info.rem[0] * 10 + d] = 1;
+                      dest.groupNodeCellsOn.set(info.rem[0] * 10 + d, [...g.cells]);
+                      this._groupImplicationFired = true;
+                      queue2.push({ cell: info.rem[0], d, isOn: true, dist: gOffDist });
+                    }
+                  } else if (info.g2Idx >= 0) {
+                    const g2 = groups[info.g2Idx];
+                    for (const bCell of gBuddies[info.g2Idx]) {
                       if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
                       if (dest.addDel(bCell, d)) {
                         dest.minDistOff[bCell * 10 + d] = gOffDist;
@@ -637,7 +605,6 @@ export class TablingSolver extends AbstractSolver {
                         dest.groupNodeCellsOff.set(bCell * 10 + d, [...g2.cells]);
                         this._groupImplicationFired = true;
                         queue2.push({ cell: bCell, d, isOn: false, dist: gOffDist });
-                        // Java does not cascade checkGroupOff from H21 g2g.
                       }
                     }
                   }
@@ -645,37 +612,21 @@ export class TablingSolver extends AbstractSolver {
               }
             }
           } else {
-            // C is OFF for d: H22 — if C is the sole non-group d-cell in one of
-            // G's OWN houses (G.row/G.col/G.block) → G forced ON → eliminate d
-            // from G's buddies. Restricted to G's own houses to match Java's
-            // fillTablesWithGroupNodes (which only checks gn.block/gn.line/gn.col).
-            for (const g of groupsByDigit[d]) {
-              if (g.cells.includes(c)) continue;
-              for (const houseIdx of [
-                ...(g.row >= 0 ? [g.row] : []),
-                ...(g.col >= 0 ? [9 + g.col] : []),
-                18 + g.block,
-              ]) {
-                if (!(HOUSE_CELLS[houseIdx] as number[]).includes(c)) continue;
-                const staticRem = (HOUSE_CELLS[houseIdx] as number[]).filter(
-                  hc => !g.cells.includes(hc) && s.values[hc] === 0 && s.isCandidate(hc, d),
-                );
-                if (staticRem.length === 1 && staticRem[0] === c) {
-                  const gTriggeredDist = dist + 2;
-                  const gBuddies = g.cells.reduce(
-                    (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
-                    [...Sudoku2.BUDDIES[g.cells[0]]],
-                  ).filter(c3 => !g.cells.includes(c3));
-                  for (const bCell of gBuddies) {
-                    if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
-                    if (dest.addDel(bCell, d)) {
-                      dest.minDistOff[bCell * 10 + d] = gTriggeredDist;
-                      dest.retOff[bCell * 10 + d] = parentEnc;
-                      dest.groupFiredOff[bCell * 10 + d] = 1;
-                      dest.groupNodeCellsOff.set(bCell * 10 + d, [...g.cells]);
-                      this._groupImplicationFired = true;
-                      queue2.push({ cell: bCell, d, isOn: false, dist: gTriggeredDist });
-                    }
+            // C is OFF for d: use precomputed h22InfoMap for fast group lookup.
+            const h22Idxs = h22InfoMap.get(c * 10 + d);
+            if (h22Idxs) {
+              for (const gi of h22Idxs) {
+                const g = groups[gi];
+                const gTriggeredDist = dist + 2;
+                for (const bCell of gBuddies[gi]) {
+                  if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
+                  if (dest.addDel(bCell, d)) {
+                    dest.minDistOff[bCell * 10 + d] = gTriggeredDist;
+                    dest.retOff[bCell * 10 + d] = parentEnc;
+                    dest.groupFiredOff[bCell * 10 + d] = 1;
+                    dest.groupNodeCellsOff.set(bCell * 10 + d, [...g.cells]);
+                    this._groupImplicationFired = true;
+                    queue2.push({ cell: bCell, d, isOn: false, dist: gTriggeredDist });
                   }
                 }
               }
