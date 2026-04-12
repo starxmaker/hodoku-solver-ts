@@ -180,6 +180,8 @@ export class SingleDigitPatternSolver extends AbstractSolver {
     const { values, candidates } = this.sudoku;
     const BUDDIES = Sudoku2.BUDDIES;
 
+    const allSteps: SolutionStep[] = [];
+
     for (let d = 1; d <= 9; d++) {
       const only2 = this._only2(d);
 
@@ -203,15 +205,33 @@ export class SingleDigitPatternSolver extends AbstractSolver {
           if (!(candidates[B] & (1 << d)) || !(candidates[C] & (1 << d))) continue;
           if (!BUDDIES[B].includes(C)) continue;
 
-          // A and D are the free ends
+          // A and D are the free ends — collect all valid eliminations
           const del = _commonBuddyElims(A, D, d, this.sudoku);
           if (del.length) {
-            return { type: SolutionType.TURBOT_FISH, placements: [], candidatesToDelete: del };
+            allSteps.push({ type: SolutionType.TURBOT_FISH, placements: [], candidatesToDelete: del });
           }
         }
       }
     }
-    return null;
+
+    if (allSteps.length === 0) return null;
+
+    // Sort matching Java's SolutionStep.compareTo: more eliminations DESC,
+    // then getIndexSumme(candidatesToDelete) ASC (index*offset+value, offset 1/81/161...)
+    allSteps.sort((a, b) => {
+      const sizeDiff = b.candidatesToDelete.length - a.candidatesToDelete.length;
+      if (sizeDiff !== 0) return sizeDiff;
+      let sumA = 0, sumB = 0, offset = 1;
+      const len = a.candidatesToDelete.length;
+      for (let i = 0; i < len; i++) {
+        sumA += a.candidatesToDelete[i].index * offset + a.candidatesToDelete[i].value;
+        sumB += b.candidatesToDelete[i].index * offset + b.candidatesToDelete[i].value;
+        offset += 80;
+      }
+      return sumA - sumB;
+    });
+
+    return allSteps[0];
   }
 
   // ── Empty Rectangle ───────────────────────────────────────────────────────────
