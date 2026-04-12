@@ -452,6 +452,90 @@ export class TablingSolver extends AbstractSolver {
           else      { dest.minDistOff[key] = 1; dest.retOff[key] = -1; }
         }
 
+        // Process group implications of the premise cell itself — matches Java's
+        // fillTablesWithGroupNodes which also processes the premise as a starting point.
+        // The BFS below skips the premise cell to prevent loops, so group effects
+        // that start FROM the premise must be seeded upfront.
+        const premiseIsOn = (table === onTable);
+        const premiseEnc  = premiseCi * 20 + premiseD * 2 + (premiseIsOn ? 1 : 0);
+        if (premiseIsOn) {
+          // Premise ON: if premise sees all cells of group G → G is forced OFF.
+          for (const g of groupsByDigit[premiseD]) {
+            if (g.cells.includes(premiseCi)) continue;
+            if (!g.cells.every(gc => Sudoku2.BUDDIES[gc].includes(premiseCi))) continue;
+            const gOffDist = 2;
+            for (const hIdx of [
+              ...(g.row >= 0 ? [g.row] : []),
+              ...(g.col >= 0 ? [9 + g.col] : []),
+              18 + g.block,
+            ]) {
+              const rem = (HOUSE_CELLS[hIdx] as number[]).filter(
+                hc => !g.cells.includes(hc) && s.values[hc] === 0 && s.isCandidate(hc, premiseD),
+              );
+              if (rem.length === 1 && dest.addSet(rem[0], premiseD)) {
+                dest.minDistOn[rem[0] * 10 + premiseD] = gOffDist;
+                dest.retOn[rem[0] * 10 + premiseD] = premiseEnc;
+                dest.groupFiredOn[rem[0] * 10 + premiseD] = 1;
+                this._groupImplicationFired = true;
+                queue2.push({ cell: rem[0], d: premiseD, isOn: true, dist: gOffDist });
+              } else if (rem.length > 1) {
+                const g2 = groupsByDigit[premiseD].find(
+                  gn => gn !== g && gn.cells.length === rem.length
+                     && rem.every(hc => gn.cells.includes(hc)),
+                );
+                if (g2) {
+                  const g2Buddies = g2.cells.reduce(
+                    (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
+                    [...Sudoku2.BUDDIES[g2.cells[0]]],
+                  ).filter(c3 => !g2.cells.includes(c3));
+                  for (const bCell of g2Buddies) {
+                    if (s.values[bCell] !== 0 || !s.isCandidate(bCell, premiseD) || dest.offSets[premiseD].has(bCell)) continue;
+                    if (dest.addDel(bCell, premiseD)) {
+                      dest.minDistOff[bCell * 10 + premiseD] = gOffDist;
+                      dest.retOff[bCell * 10 + premiseD] = premiseEnc;
+                      dest.groupFiredOff[bCell * 10 + premiseD] = 1;
+                      this._groupImplicationFired = true;
+                      queue2.push({ cell: bCell, d: premiseD, isOn: false, dist: gOffDist });
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          // Premise OFF: H22 — if premise is the sole non-group d-cell in G's house → G forced ON.
+          for (const g of groupsByDigit[premiseD]) {
+            if (g.cells.includes(premiseCi)) continue;
+            for (const houseIdx of [
+              ...(g.row >= 0 ? [g.row] : []),
+              ...(g.col >= 0 ? [9 + g.col] : []),
+              18 + g.block,
+            ]) {
+              if (!(HOUSE_CELLS[houseIdx] as number[]).includes(premiseCi)) continue;
+              const staticRem = (HOUSE_CELLS[houseIdx] as number[]).filter(
+                hc => !g.cells.includes(hc) && s.values[hc] === 0 && s.isCandidate(hc, premiseD),
+              );
+              if (staticRem.length === 1 && staticRem[0] === premiseCi) {
+                const gTriggeredDist = 2;
+                const gBuddies = g.cells.reduce(
+                  (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
+                  [...Sudoku2.BUDDIES[g.cells[0]]],
+                ).filter(c3 => !g.cells.includes(c3));
+                for (const bCell of gBuddies) {
+                  if (s.values[bCell] !== 0 || !s.isCandidate(bCell, premiseD) || dest.offSets[premiseD].has(bCell)) continue;
+                  if (dest.addDel(bCell, premiseD)) {
+                    dest.minDistOff[bCell * 10 + premiseD] = gTriggeredDist;
+                    dest.retOff[bCell * 10 + premiseD] = premiseEnc;
+                    dest.groupFiredOff[bCell * 10 + premiseD] = 1;
+                    this._groupImplicationFired = true;
+                    queue2.push({ cell: bCell, d: premiseD, isOn: false, dist: gTriggeredDist });
+                  }
+                }
+              }
+            }
+          }
+        }
+
         let qi = 0;
         while (qi < queue2.length) {
           const { cell: c, d, isOn, dist } = queue2[qi++];
