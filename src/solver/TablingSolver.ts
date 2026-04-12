@@ -1508,6 +1508,12 @@ export class TablingSolver extends AbstractSolver {
       }
     }
 
+    // Java builds candidates via bitset operations and chain walks that produce
+    // them grouped by digit: strong-strong adds (cell, d1),(cell, d2)… ascending
+    // digit for the same cell; weak-link adds (c1, d),(c2, d)… ascending cell
+    // for the same digit.  Sorting by (value, index) reproduces this layout so
+    // that _indexSum (order-dependent weighted sum) matches Java's getIndexSumme.
+    dels.sort((a, b) => a.value - b.value || a.index - b.index);
     return dels;
   }
 
@@ -1990,12 +1996,7 @@ function _compareSteps(a: _StepCandidate, b: _StepCandidate): number {
   // If not equivalent (different type or different candidatesToDelete): shorter chain, then index sum
   const ad = a.step.candidatesToDelete;
   const bd = b.step.candidatesToDelete;
-  let equiv = a.step.type === b.step.type && ad.length === bd.length;
-  if (equiv) {
-    for (let i = 0; i < ad.length; i++) {
-      if (ad[i].index !== bd[i].index || ad[i].value !== bd[i].value) { equiv = false; break; }
-    }
-  }
+  let equiv = a.step.type === b.step.type && _candidateSetsEqual(ad, bd);
   if (!equiv) {
     const chainDiff = a.dist - b.dist;
     if (chainDiff !== 0) return chainDiff;
