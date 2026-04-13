@@ -105,6 +105,7 @@ export class AlsSolver extends AbstractSolver {
     const alses = this._collectAlses();
     const n = alses.length;
     const BUDDIES = Sudoku2.BUDDIES;
+    const dbg = (process.env as any)['HODOKU_DEBUG_ALS'];
 
     // Java uses onlyOne=true: return first step found during (i,j) iteration.
     for (let i = 0; i < n - 1; i++) {
@@ -131,6 +132,20 @@ export class AlsSolver extends AbstractSolver {
         }
         if (rcs.length === 0) continue;
 
+        if (dbg) {
+          const fmt = (als: Als) => als.cells.map(c=>`r${Math.floor(c/9)+1}c${c%9+1}`).join(',');
+          process.stderr.write(`ALS_XZ pair: A=[${fmt(A)}] B=[${fmt(B)}] RCs=${rcs.join(',')}\n`);
+          // Extra debug for Z=5 at r4c3 (cell 29)
+          const TARGET = 29, Z = 5;
+          if ((A.candMask & (1<<Z)) && (B.candMask & (1<<Z)) && !aSet.has(TARGET) && !B.cells.includes(TARGET)) {
+            const zCellsA = A.cellsFor[Z], zCellsB = B.cellsFor[Z];
+            const buddiesA = commonBuddies(zCellsA);
+            const inBuddiesA = buddiesA.has(TARGET);
+            const inBuddiesB = B.buddiesFor[Z].has(TARGET);
+            process.stderr.write(`  Z=5 at r4c3: zCellsA=[${zCellsA.map(c=>`r${Math.floor(c/9)+1}c${c%9+1}`).join(',')}] zCellsB=[${zCellsB.map(c=>`r${Math.floor(c/9)+1}c${c%9+1}`).join(',')}] r4c3inBuddiesA=${inBuddiesA} r4c3inBuddiesB=${inBuddiesB} rcMask=${rcs} doubly=${rcs.length===2}\n`);
+          }
+        }
+
         // With RC(s) found, look for eliminations.
         // Candidates that can be eliminated: any digit Z common to A and B,
         // Z ≠ all RCs, where cells outside A∪B see all occurrences of Z in both.
@@ -148,9 +163,13 @@ export class AlsSolver extends AbstractSolver {
         }
 
         // Normal Z eliminations (work for both singly and doubly linked)
+        // For doubly-linked ALS, Java calls checkCandidatesToDelete twice (once
+        // removing rc1, once removing rc2), so Z can equal the other RC.
+        // Combined: Z iterates over ALL common candidates (no RC exclusion).
+        // For singly-linked: skip the single RC as normal.
         for (let z = 1; z <= 9; z++) {
           if (!(common & (1 << z))) continue;
-          if (rcMask & (1 << z)) continue; // skip RC digit itself
+          if (!doubly && (rcMask & (1 << z))) continue; // skip RC digit only for singly-linked
 
           // Cells outside A∪B that see ALL z-cells in A and ALL z-cells in B
           const zCellsA = A.cellsFor[z];
@@ -169,6 +188,11 @@ export class AlsSolver extends AbstractSolver {
         // Deduplicate
         const unique = dedupCands(toDelete);
         if (unique.length > 0) {
+          if (dbg) {
+            const fmt = (als: Als) => als.cells.map(c=>`r${Math.floor(c/9)+1}c${c%9+1}`).join(',');
+            const elims = unique.map(c=>`r${Math.floor(c.index/9)+1}c${c.index%9+1}=${c.value}`).join(',');
+            process.stderr.write(`ALS_XZ FOUND: A=[${fmt(A)}] B=[${fmt(B)}] RCs=${rcs.join(',')} ELIM=[${elims}]\n`);
+          }
           return { type: SolutionType.ALS_XZ, placements: [], candidatesToDelete: unique };
         }
       }
@@ -296,6 +320,12 @@ export class AlsSolver extends AbstractSolver {
 
         const unique = dedupCands(toDelete);
         if (unique.length > 0) {
+          if ((process.env as any)['HODOKU_DEBUG_ALS']) {
+            const C = alses[cIdx];
+            const fmtA = (als: Als) => als.cells.map(c=>`r${Math.floor(c/9)+1}c${c%9+1}`).join(',');
+            const elims = unique.map(c=>`r${Math.floor(c.index/9)+1}c${c.index%9+1}=${c.value}`).join(',');
+            process.stderr.write(`ALS_XY_WING FOUND: A=[${fmtA(A)}] C=[${fmtA(C)}] B=[${fmtA(B)}] rc1d=${rc1.d1}/${rc1.d2} rc2d=${rc2.d1}/${rc2.d2} ELIM=[${elims}]\n`);
+          }
           return { type: SolutionType.ALS_XY_WING, placements: [], candidatesToDelete: unique };
         }
       }

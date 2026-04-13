@@ -433,11 +433,17 @@ export class SudokuSolver extends AbstractSolver {
     let minLevelIdx = 0;
 
     outer: for (let i = 0; i < 10_000 && !this.sudoku.isSolved; i++) {
+      const debugSteps = (process.env as any)['HODOKU_DEBUG_STEPS'];
+      const debugStepList: string[] = [];
       for (const type of TECHNIQUE_ORDER) {
         const step = this._solverFor(type)?.getStep(type);
+        if (debugSteps) debugStepList.push(`${type}=${step ? 'YES' : 'no'}`);
         if (step) {
           const stepScore = STEP_BASE_SCORES[step.type] ?? 0;
           score += stepScore;
+          if (debugSteps) {
+            process.stderr.write(`[STEP ${i}] ${debugStepList.join(', ')}\n`);
+          }
           if ((process.env as any)['HODOKU_TRACE']) {
             const elims = step.candidatesToDelete.map(c => `r${Math.floor(c.index/9)+1}c${c.index%9+1}=${c.value}`).join(',');
             const places = step.placements.map(c => `r${Math.floor(c.index/9)+1}c${c.index%9+1}=${c.value}`).join(',');
