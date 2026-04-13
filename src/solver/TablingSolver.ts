@@ -500,16 +500,18 @@ export class TablingSolver extends AbstractSolver {
         if (table === onTable) dest.onSets[premiseD].add(premiseCi);
         else                   dest.offSets[premiseD].add(premiseCi);
 
-        // Group cascading helpers: implement multi-hop group-node propagation
-        // matching Java's fillTablesWithGroupNodes + expandTables.
-        // cascadeGroupOff: group OFF → sole cell ON or partner group ON → cascade
-        // cascadeGroupOn: group ON → buddy cells OFF + other groups OFF → cascade
-        const cascadedOff = new Set<number>();
-        const cascadedOn  = new Set<number>();
+        // Group effect helpers: implement group-node propagation matching Java's
+        // fillTablesWithGroupNodes + expandTables. Non-recursive to match Java's
+        // BFS-driven expansion where each group table is expanded at most once.
+        const processedGroupOff = new Set<number>();
+        const processedGroupOn  = new Set<number>();
+        // Track group ON parameters for the post-BFS cascade pass
+        const groupOnParams = new Map<number, { d: number, gDist: number, pEnc: number }>();
 
-        const cascadeGroupOff = (gi: number, d: number, gDist: number, pEnc: number) => {
-          if (cascadedOff.has(gi)) return;
-          cascadedOff.add(gi);
+        /** Group gi turned OFF: sole remaining cell turns ON, or partner group turns ON → buddy cells OFF. */
+        const handleGroupOff = (gi: number, d: number, gDist: number, pEnc: number) => {
+          if (processedGroupOff.has(gi)) return;
+          processedGroupOff.add(gi);
           const g = groups[gi];
           for (const info of groupHouseInfos[gi]) {
             if (info.rem.length === 1) {
@@ -524,14 +526,21 @@ export class TablingSolver extends AbstractSolver {
                 queue2.push({ cell, d, isOn: true, dist: gDist });
               }
             } else if (info.g2Idx >= 0) {
-              cascadeGroupOn(info.g2Idx, d, gDist, pEnc);
+              // Partner group turns ON → its buddy cells OFF
+              // Java: partner H ON is one hop from G OFF, so distance = gDist + 1
+              handleGroupOn(info.g2Idx, d, gDist + 1, pEnc);
             }
           }
         };
 
-        const cascadeGroupOn = (gi: number, d: number, gDist: number, pEnc: number) => {
-          if (cascadedOn.has(gi)) return;
-          cascadedOn.add(gi);
+        /** Group gi turned ON: buddy cells OFF.
+         *  groupOnToGroupsOff is deferred to a post-BFS pass so that the
+         *  main BFS produces the same entry order as Java (which processes
+         *  group entries only when dequeued, not inline). */
+        const handleGroupOn = (gi: number, d: number, gDist: number, pEnc: number) => {
+          if (processedGroupOn.has(gi)) return;
+          processedGroupOn.add(gi);
+          groupOnParams.set(gi, { d, gDist, pEnc });
           const g = groups[gi];
           for (const bCell of gBuddies[gi]) {
             if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
@@ -545,9 +554,6 @@ export class TablingSolver extends AbstractSolver {
               queue2.push({ cell: bCell, d, isOn: false, dist: gDist });
             }
           }
-          for (const g2i of groupOnToGroupsOffIdx[gi]) {
-            cascadeGroupOff(g2i, d, gDist, pEnc);
-          }
         };
 
         // Process group implications of the premise cell itself — matches Java's
@@ -558,14 +564,14 @@ export class TablingSolver extends AbstractSolver {
           const seenByPremise = cellSeesGroupIdxs.get(premiseCi * 10 + premiseD);
           if (seenByPremise) {
             for (const gi of seenByPremise) {
-              cascadeGroupOff(gi, premiseD, 2, premiseEnc);
+              handleGroupOff(gi, premiseD, 2, premiseEnc);
             }
           }
         } else {
           const h22Premise = h22InfoMap.get(premiseCi * 10 + premiseD);
           if (h22Premise) {
             for (const gi of h22Premise) {
-              cascadeGroupOn(gi, premiseD, 2, premiseEnc);
+              handleGroupOn(gi, premiseD, 2, premiseEnc);
             }
           }
         }
@@ -621,14 +627,74 @@ export class TablingSolver extends AbstractSolver {
             const seenIdxs = cellSeesGroupIdxs.get(c * 10 + d);
             if (seenIdxs) {
               for (const gi of seenIdxs) {
-                cascadeGroupOff(gi, d, dist + 2, parentEnc);
+                handleGroupOff(gi, d, dist + 2, parentEnc);
               }
             }
           } else {
             const h22Idxs = h22InfoMap.get(c * 10 + d);
             if (h22Idxs) {
               for (const gi of h22Idxs) {
-                cascadeGroupOn(gi, d, dist + 2, parentEnc);
+                handleGroupOn(gi, d, dist + 2, parentEnc);
+              }
+            }
+          }
+        }
+
+        // Phase 2: Group ON → group OFF cascade (deferred from the main BFS).
+        // Java processes group entries in the same dest array as cell entries,
+        // so group-to-group effects fire only after all earlier cell entries
+        // have been expanded.  By deferring the cascade here we match that
+        // ordering: Phase 1 mirrors Java's cell-first expansion, then Phase 2
+        // adds group-to-group connections and propagates their effects.
+        let cascadeAdded = true;
+        while (cascadeAdded) {
+          cascadeAdded = false;
+          for (const [gi, info] of groupOnParams) {
+            for (const g2i of groupOnToGroupsOffIdx[gi]) {
+              if (!processedGroupOff.has(g2i)) {
+                const prevQLen = queue2.length;
+                handleGroupOff(g2i, info.d, info.gDist + 1, info.pEnc);
+                if (queue2.length > prevQLen) cascadeAdded = true;
+              }
+            }
+          }
+          // Propagate any new cell entries from the cascade
+          while (qi < queue2.length) {
+            const { cell: c, d, isOn, dist } = queue2[qi++];
+            if (c === premiseCi && d === premiseD) continue;
+            const parentEnc = c * 20 + d * 2 + (isOn ? 1 : 0);
+            const srcTi = c * 10 + d;
+            const srcSnap = isOn ? onSnap[srcTi] : offSnap[srcTi];
+            for (const { cell: c2, d: d2, isOn: isOn2 } of srcSnap) {
+              const newDist = dist + 1;
+              const key = c2 * 10 + d2;
+              if (isOn2) {
+                if (dest.addSet(c2, d2)) {
+                  dest.minDistOn[key] = newDist;
+                  dest.retOn[key] = parentEnc;
+                  queue2.push({ cell: c2, d: d2, isOn: true, dist: newDist });
+                } else if (dest.minDistOn[key] === newDist && dest.groupFiredOn[key] === 1) {
+                  dest.altRetOn.set(key, parentEnc);
+                }
+              } else {
+                if (dest.addDel(c2, d2)) {
+                  dest.minDistOff[key] = newDist;
+                  dest.retOff[key] = parentEnc;
+                  queue2.push({ cell: c2, d: d2, isOn: false, dist: newDist });
+                } else if (dest.minDistOff[key] === newDist && dest.groupFiredOff[key] === 1) {
+                  dest.altRetOff.set(key, parentEnc);
+                }
+              }
+            }
+            if (isOn) {
+              const seenIdxs = cellSeesGroupIdxs.get(c * 10 + d);
+              if (seenIdxs) {
+                for (const gi2 of seenIdxs) handleGroupOff(gi2, d, dist + 2, parentEnc);
+              }
+            } else {
+              const h22Idxs = h22InfoMap.get(c * 10 + d);
+              if (h22Idxs) {
+                for (const gi2 of h22Idxs) handleGroupOn(gi2, d, dist + 2, parentEnc);
               }
             }
           }
