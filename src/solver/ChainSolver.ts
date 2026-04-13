@@ -1,7 +1,4 @@
 /*
- * hodoku-solver-ts — TypeScript port of HoDoKu's logical Sudoku solver.
- * Copyright (C) 2026 starxmaker
- *
  * Ported from HoDoKu (https://sourceforge.net/projects/hodoku/)
  * Original Java implementation Copyright (C) 2008-12 Bernhard Hobiger
  *
