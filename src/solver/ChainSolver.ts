@@ -169,7 +169,7 @@ export class ChainSolver extends AbstractSolver {
       cell: number, curD: number, startD: number,
       chain: number[], visited: Set<number>,
     ): void => {
-      if (chain.length >= 20) return; // max chain length (Java RESTRICT_CHAIN_LENGTH)
+      if (chain.length >= 10) return; // Java RESTRICT_CHAIN_LENGTH=20 entries, 2 per cell = 10 cells
       for (const next of biCells) {
         if (visited.has(next)) continue;
         if (!(candidates[next] & (1 << curD))) continue;
