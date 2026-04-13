@@ -1096,8 +1096,13 @@ export class TablingSolver extends AbstractSolver {
       for (let d = 1; d <= 9; d++) if (d !== pd) for (const c of on.offSets[d]) onSnap[ti].push({ cell: c, d, isOn: false });
       for (const c of on.offSets[pd]) onSnap[ti].push({ cell: c, d: pd, isOn: false });
 
-      // OFF-table snap: ON implications first, then OFF.
-      for (let d = 1; d <= 9; d++) for (const c of off.onSets[d])  offSnap[ti].push({ cell: c, d, isOn: true });
+      // OFF-table snap: match Java chainsOnly fill order — same-cell ON entries
+      // (naked single) first, then different-cell ON entries (strong links), then OFF.
+      // Java's fillTables adds naked single before iterating house constraints,
+      // so same-cell entries must precede different-cell regardless of digit.
+      const pci = (ti / 10) | 0;
+      for (let d = 1; d <= 9; d++) for (const c of off.onSets[d])  if (c === pci)  offSnap[ti].push({ cell: c, d, isOn: true });
+      for (let d = 1; d <= 9; d++) for (const c of off.onSets[d])  if (c !== pci)  offSnap[ti].push({ cell: c, d, isOn: true });
       for (let d = 1; d <= 9; d++) for (const c of off.offSets[d]) offSnap[ti].push({ cell: c, d, isOn: false });
     }
 
@@ -1361,8 +1366,8 @@ export class TablingSolver extends AbstractSolver {
     entry: TableEntry, ci: number, endD: number, endIsOn: boolean, startParent: number,
   ): boolean {
     // Java would use the NORMAL parent for the conclusion entry if one exists.
-    // Try the NORMAL (alt) path first; if the lasso check fails, fall back to
-    // the GROUP path (startParent), matching Java's dual-entry behaviour.
+    // Try the alt path first; if the lasso check fails, fall back to the
+    // primary path (startParent), matching Java's dual-entry behaviour.
     const concKey = ci * 10 + endD;
     const concAlt = endIsOn ? entry.altRetOn.get(concKey) : entry.altRetOff.get(concKey);
 
@@ -1411,7 +1416,8 @@ export class TablingSolver extends AbstractSolver {
       // parent must not be in the same cell as the conclusion.
       if (backCells[1] === ci) continue;
 
-      if (TablingSolver._lassoCheck(backCells, backGroup, ci)) return true;
+      const ok = TablingSolver._lassoCheck(backCells, backGroup, ci);
+      if (ok) return true;
     }
     return false;
   }
