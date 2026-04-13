@@ -93,6 +93,12 @@ class TableEntry {
   /** Group cells for group-fired OFF entries. Keyed by ti = cell*10+digit. */
   readonly groupNodeCellsOff: Map<number, number[]> = new Map();
 
+  /** Alternate (NORMAL) parent for ON entries where GROUP won at same BFS distance.
+   *  Keyed by ti = cell*10+digit.  Encoded same as retOn. */
+  readonly altRetOn:  Map<number, number> = new Map();
+  /** Alternate (NORMAL) parent for OFF entries where GROUP won at same BFS distance. */
+  readonly altRetOff: Map<number, number> = new Map();
+
   private _populated = false;
   get populated(): boolean { return this._populated; }
 
@@ -112,6 +118,8 @@ class TableEntry {
     this.groupFiredOff.fill(0);
     this.groupNodeCellsOn.clear();
     this.groupNodeCellsOff.clear();
+    this.altRetOn.clear();
+    this.altRetOff.clear();
   }
 
   addSet(cell: number, d: number): boolean {
@@ -553,22 +561,30 @@ export class TablingSolver extends AbstractSolver {
 
           for (const { cell: c2, d: d2, isOn: isOn2 } of srcSnap) {
             const newDist = dist + 1;
+            const key = c2 * 10 + d2;
             if (isOn2) {
               if (dest.addSet(c2, d2)) {
-                dest.minDistOn[c2 * 10 + d2] = newDist;
-                dest.retOn[c2 * 10 + d2] = parentEnc;
+                dest.minDistOn[key] = newDist;
+                dest.retOn[key] = parentEnc;
                 queue2.push({ cell: c2, d: d2, isOn: true, dist: newDist });
-                // Group implications for c2 ON are handled by the dequeue-time group
-                // check (below) when c2 is processed from the queue. This ensures that
-                // direct snap paths (dist+1) are stored before group-hop paths (dist+2)
-                // can overwrite them when c2 is dequeued — matching Java's index ordering.
+              } else if (
+                // Java's expandTables prefers NORMAL nodes over GROUP nodes at
+                // the same distance (nodeType comparison).  Snap entries are
+                // always NORMAL.  Store the NORMAL parent as an alternate so
+                // the lasso check can verify both paths.
+                dest.minDistOn[key] === newDist && dest.groupFiredOn[key] === 1
+              ) {
+                dest.altRetOn.set(key, parentEnc);
               }
             } else {
               if (dest.addDel(c2, d2)) {
-                dest.minDistOff[c2 * 10 + d2] = newDist;
-                dest.retOff[c2 * 10 + d2] = parentEnc;
+                dest.minDistOff[key] = newDist;
+                dest.retOff[key] = parentEnc;
                 queue2.push({ cell: c2, d: d2, isOn: false, dist: newDist });
-                // H22 implications for c2 OFF are handled by the dequeue-time group check.
+              } else if (
+                dest.minDistOff[key] === newDist && dest.groupFiredOff[key] === 1
+              ) {
+                dest.altRetOff.set(key, parentEnc);
               }
             }
           }
@@ -1178,49 +1194,93 @@ export class TablingSolver extends AbstractSolver {
     const parent = endIsOn ? entry.retOn[key] : entry.retOff[key];
     // dist=1 entry: premise → conclusion directly (no intermediate chain)
     if (parent === -1) return false;
-    return this._buildAndCheckLasso(entry, ci, parent);
+    return this._buildAndCheckLasso(entry, ci, endD, endIsOn, parent);
   }
 
   /**
-   * Trace the chain backward from the node encoded in `startParent` using
-   * primary parent pointers only. Returns true iff the resulting chain is
-   * lasso-free per Java's nice-loop rules (ci is exempt from the set).
+   * Trace the chain backward from the conclusion entry, simulating Java's
+   * BFS path preference: at each entry, if an alternate NORMAL parent exists
+   * (altRetOn/Off), use it and skip GROUP_NODE insertion; otherwise follow the
+   * primary (GROUP) parent and insert virtual GROUP_NODE entries.
+   *
+   * Returns true iff the resulting chain is lasso-free per Java's nice-loop
+   * rules (ci is exempt from the lasso set).
    */
-  private _buildAndCheckLasso(entry: TableEntry, ci: number, startParent: number): boolean {
-    const backwardCells: number[] = [ci]; // conclusion (= premise cell for DNL)
-    let curCell = (startParent / 20) | 0;
-    let curD    = (startParent % 20) >> 1;
-    let curIsOn = (startParent & 1) === 1;
-    backwardCells.push(curCell);
+  private _buildAndCheckLasso(
+    entry: TableEntry, ci: number, endD: number, endIsOn: boolean, startParent: number,
+  ): boolean {
+    // Java would use the NORMAL parent for the conclusion entry if one exists
+    const concKey = ci * 10 + endD;
+    const concAlt = endIsOn ? entry.altRetOn.get(concKey) : entry.altRetOff.get(concKey);
+    const useStartParent = concAlt !== undefined ? concAlt : startParent;
+
+    const backCells: number[] = [ci];
+    const backGroup: (number[] | undefined)[] = [undefined];
+
+    let curCell = (useStartParent / 20) | 0;
+    let curD    = (useStartParent % 20) >> 1;
+    let curIsOn = (useStartParent & 1) === 1;
+    backCells.push(curCell);
+    backGroup.push(undefined);
 
     let steps = 0;
     while (steps < 200) {
-      const k   = curCell * 10 + curD;
-      const par = curIsOn ? entry.retOn[k] : entry.retOff[k];
-      if (par === -1) break;
-      curCell = (par / 20) | 0;
-      curD    = (par % 20) >> 1;
-      curIsOn = (par & 1) === 1;
-      backwardCells.push(curCell);
+      const k = curCell * 10 + curD;
+      // Prefer NORMAL alternate parent (Java's nodeType rewrite)
+      const altPar = curIsOn ? entry.altRetOn.get(k) : entry.altRetOff.get(k);
+      const usePar = altPar !== undefined
+        ? altPar
+        : (curIsOn ? entry.retOn[k] : entry.retOff[k]);
+      if (usePar === -1 && altPar === undefined) break;
+
+      // Insert GROUP_NODE only for entries Java would keep as GROUP (no alternate)
+      if (altPar === undefined) {
+        const gCells = curIsOn
+          ? entry.groupNodeCellsOn.get(k)
+          : entry.groupNodeCellsOff.get(k);
+        if (gCells) {
+          backCells.push(gCells[0]);
+          backGroup.push(gCells);
+        }
+      }
+
+      curCell = (usePar / 20) | 0;
+      curD    = (usePar % 20) >> 1;
+      curIsOn = (usePar & 1) === 1;
+      backCells.push(curCell);
+      backGroup.push(undefined);
       steps++;
     }
-    backwardCells.push(ci); // premise
+    backCells.push(ci); // premise
+    backGroup.push(undefined);
 
     // Java's Nice Loop check (addChain line 2802): the conclusion's immediate
-    // parent must not be in the same cell as the conclusion.  This mirrors
-    // chain[0].cell == chain[1].cell in Java's backward chain array.
-    if (backwardCells[1] === ci) return false; // last link stays in conclusion cell
+    // parent must not be in the same cell as the conclusion.
+    if (backCells[1] === ci) return false;
 
-    // Java's nice-loop lasso check: add each cell to lassoSet with a 1-step
-    // delay; ci (premise/conclusion) is never added (exempt).
-    const n = backwardCells.length;
+    return TablingSolver._lassoCheck(backCells, backGroup, ci);
+  }
+
+  /** Standard lasso check shared by nice-loop and AIC chains.
+   *  Returns true = no lasso (valid), false = lasso found (invalid). */
+  private static _lassoCheck(
+    backCells: number[], backGroup: (number[] | undefined)[], exemptCell: number,
+  ): boolean {
+    const n = backCells.length;
     const lassoSet = new Set<number>();
     let lastCell = -1;
+    let lastGroup: number[] | undefined;
     for (let i = n - 1; i >= 0; i--) {
-      const cell = backwardCells[i];
-      if (lassoSet.has(cell)) return false; // lasso detected
-      if (lastCell !== -1 && lastCell !== ci) lassoSet.add(lastCell);
+      const cell = backCells[i];
+      if (lassoSet.has(cell)) return false;
+      if (lastCell !== -1 && lastCell !== exemptCell) {
+        lassoSet.add(lastCell);
+        if (lastGroup) {
+          for (const gc of lastGroup) lassoSet.add(gc);
+        }
+      }
       lastCell = cell;
+      lastGroup = backGroup[i];
     }
     return true;
   }
@@ -1236,7 +1296,7 @@ export class TablingSolver extends AbstractSolver {
     const key0 = ci * 10 + endD;
     const parent = endIsOn ? entry.retOn[key0] : entry.retOff[key0];
     if (parent === -1) return false;
-    if (!this._buildAndCheckLasso(entry, ci, parent)) return false;
+    if (!this._buildAndCheckLasso(entry, ci, endD, endIsOn, parent)) return false;
 
     // Then verify the chain actually uses a group-triggered step
     let curCell = ci, curD = endD, curIsOn = endIsOn;
@@ -1254,7 +1314,8 @@ export class TablingSolver extends AbstractSolver {
 
   /**
    * Validate an AIC chain for lassos. Reconstructs the chain from parent
-   * pointers and checks Java's lasso rules:
+   * pointers (preferring NORMAL alternates over GROUP, matching Java's BFS)
+   * and checks Java's lasso rules:
    * - For AICs, ALL cells (including the first cell) are added to the lasso set
    *   with a 1-step delay
    * - If any cell appears in the lasso set, the chain is rejected
@@ -1262,39 +1323,63 @@ export class TablingSolver extends AbstractSolver {
    */
   private _aicIsValid(entry: TableEntry, endCell: number, endD: number, endIsOn: boolean): boolean {
     const premiseCell = (entry.tableIndex / 10) | 0;
-    const premiseCand = entry.tableIndex % 10;
 
-    // Build forward chain from parent pointers
-    const backward: number[] = [endCell]; // cell sequence in backward order
+    // Build backward chain using Java-like path preference (NORMAL > GROUP)
+    const backCells: number[] = [endCell];
+    const backGroup: (number[] | undefined)[] = [undefined];
     let curCell = endCell, curD = endD, curIsOn = endIsOn;
     for (let steps = 0; steps < 200; steps++) {
       const k = curCell * 10 + curD;
-      const par = curIsOn ? entry.retOn[k] : entry.retOff[k];
-      if (par === -1) break;
-      const pc = (par / 20) | 0;
-      backward.push(pc);
+      const altPar = curIsOn ? entry.altRetOn.get(k) : entry.altRetOff.get(k);
+      const usePar = altPar !== undefined
+        ? altPar
+        : (curIsOn ? entry.retOn[k] : entry.retOff[k]);
+      if (usePar === -1 && altPar === undefined) break;
+
+      // Insert GROUP_NODE only for entries Java would keep as GROUP (no alternate)
+      if (altPar === undefined) {
+        const gCells = curIsOn
+          ? entry.groupNodeCellsOn.get(k)
+          : entry.groupNodeCellsOff.get(k);
+        if (gCells) {
+          backCells.push(gCells[0]);
+        backGroup.push(gCells);
+      }
+      }
+
+      const pc = (usePar / 20) | 0;
+      backCells.push(pc);
+      backGroup.push(undefined);
       curCell = pc;
-      curD = ((par % 20) >> 1);
-      curIsOn = (par & 1) === 1;
+      curD = ((usePar % 20) >> 1);
+      curIsOn = (usePar & 1) === 1;
     }
-    backward.push(premiseCell);
+    backCells.push(premiseCell);
+    backGroup.push(undefined);
     // Reverse to get forward order
-    backward.reverse();
-    if (backward.length < 4) return false; // chain too short
+    backCells.reverse();
+    backGroup.reverse();
+    if (backCells.length < 4) return false; // chain too short
 
     // Note: first-link-stays-in-cell check only applies to Nice Loops, NOT AICs
 
     // AIC lasso detection: walk forward, add cells to lasso set with 1-step delay.
-    // Skip consecutive same-cell entries (within-cell strong links).
+    // For AICs, ALL cells are added (no exemptions — Java's condition is always true).
+    // GROUP_NODE extra cells are added alongside the primary cell.
     const lassoSet = new Set<number>();
     let lastCell = -1;
-    for (let i = 0; i < backward.length; i++) {
-      const cell = backward[i];
+    let lastGroup: number[] | undefined;
+    for (let i = 0; i < backCells.length; i++) {
+      const cell = backCells[i];
       if (lassoSet.has(cell)) return false;
       if (lastCell !== -1 && lastCell !== cell) {
         lassoSet.add(lastCell);
+        if (lastGroup) {
+          for (const gc of lastGroup) lassoSet.add(gc);
+        }
       }
       lastCell = cell;
+      lastGroup = backGroup[i];
     }
     return true;
   }
