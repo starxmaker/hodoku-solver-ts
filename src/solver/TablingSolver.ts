@@ -1955,6 +1955,9 @@ function _step(
   candidatesToDelete: Candidate[],
   placements: { index: number; value: Digit }[] = [],
 ): SolutionStep {
+  // Java's getCandidateString() permanently sorts candidates by (value, index)
+  // during dedup. This affects isum in compareTo(). Match that here.
+  candidatesToDelete.sort((a, b) => a.value - b.value || a.index - b.index);
   return { type, placements, candidatesToDelete };
 }
 
