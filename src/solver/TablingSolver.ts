@@ -939,6 +939,99 @@ export class TablingSolver extends AbstractSolver {
     }
     const s = this.sudoku;
 
+    // Pre-compute group node connection data (matches Java's fillTablesWithGroupNodes).
+    // Two cascading mechanisms:
+    //   1. Group OFF → sole remaining cell ON, or sole remaining group ON
+    //   2. Group ON → buddy cells lose d, other groups in same house go OFF
+    // We pre-compute all static data and apply via processGroupOff/processGroupOn
+    // at runtime, triggered only by buddy-cell-ON or sole-remaining-cell-OFF.
+
+    // Buddies of each group: cells that see ALL group cells (excl. group cells).
+    const groupBuddiesMap: Map<GroupNode, number[]> | null = groupsByDigit
+      ? (() => {
+          const m = new Map<GroupNode, number[]>();
+          for (const gList of groupsByDigit) {
+            for (const g of gList) {
+              let buddies: number[] = [...Sudoku2.BUDDIES[g.cells[0]]];
+              for (let i = 1; i < g.cells.length; i++) {
+                buddies = buddies.filter(b => Sudoku2.BUDDIES[g.cells[i]].includes(b));
+              }
+              buddies = buddies.filter(b => !g.cells.includes(b));
+              m.set(g, buddies);
+            }
+          }
+          return m;
+        })()
+      : null;
+
+    // Group OFF effects: for each house of the group, what is the sole remaining?
+    interface _GroupOffEffect {
+      cellOn?: { cell: number; d: number };
+      groupOn?: { group: GroupNode };
+    }
+    const groupOffEffects: Map<GroupNode, _GroupOffEffect[]> | null = groupsByDigit
+      ? (() => {
+          const m = new Map<GroupNode, _GroupOffEffect[]>();
+          for (let d = 1; d <= 9; d++) {
+            for (const g of groupsByDigit[d]) {
+              const effects: _GroupOffEffect[] = [];
+              const gHouses: number[] = [];
+              if (g.row >= 0) gHouses.push(g.row);
+              if (g.col >= 0) gHouses.push(9 + g.col);
+              gHouses.push(18 + g.block);
+              for (const hIdx of gHouses) {
+                const remCells: number[] = [];
+                for (const hc of HOUSE_CELLS[hIdx] as number[]) {
+                  if (g.cells.includes(hc)) continue;
+                  if (s.values[hc] !== 0 || !s.isCandidate(hc, d)) continue;
+                  remCells.push(hc);
+                }
+                const remGroups: GroupNode[] = [];
+                for (const g2 of groupsByDigit[d]) {
+                  if (g2 === g || g2.cells.some(gc => g.cells.includes(gc))) continue;
+                  const g2InH = (g2.row >= 0 && g2.row === hIdx) ||
+                                (g2.col >= 0 && 9 + g2.col === hIdx) ||
+                                (18 + g2.block === hIdx);
+                  if (!g2InH) continue;
+                  remGroups.push(g2);
+                }
+                const remSingles = remCells.filter(rc => !remGroups.some(g2 => g2.cells.includes(rc)));
+                if (remSingles.length === 1 && remGroups.length === 0) {
+                  effects.push({ cellOn: { cell: remSingles[0], d } });
+                } else if (remSingles.length === 0 && remGroups.length === 1) {
+                  effects.push({ groupOn: { group: remGroups[0] } });
+                }
+              }
+              if (effects.length > 0) m.set(g, effects);
+            }
+          }
+          return m;
+        })()
+      : null;
+
+    // Group ON → other groups in same house go OFF.
+    const groupOnToGroupsOff: Map<GroupNode, GroupNode[]> | null = groupsByDigit
+      ? (() => {
+          const m = new Map<GroupNode, GroupNode[]>();
+          for (let d = 1; d <= 9; d++) {
+            for (const g of groupsByDigit[d]) {
+              const groupsOff: GroupNode[] = [];
+              for (const g2 of groupsByDigit[d]) {
+                if (g2 === g) continue;
+                if (g2.cells.some(gc => g.cells.includes(gc))) continue;
+                // g2 shares a house with g?
+                const shares = (g.row >= 0 && g2.row === g.row) ||
+                               (g.col >= 0 && g2.col === g.col) ||
+                               (g.block === g2.block);
+                if (shares) groupsOff.push(g2);
+              }
+              if (groupsOff.length > 0) m.set(g, groupsOff);
+            }
+          }
+          return m;
+        })()
+      : null;
+
     for (let ti = 0; ti < TABLE_SIZE; ti++) {
       const on  = onTable[ti];
       const off = offTable[ti];
@@ -995,7 +1088,90 @@ export class TablingSolver extends AbstractSolver {
         if (table === onTable) dest.onSets[premiseD].add(premiseCi);
         else                   dest.offSets[premiseD].add(premiseCi);
 
+        // Group cascading helpers: processGroupOff/On implement Java's
+        // fillTablesWithGroupNodes + expandTables multi-hop group-node
+        // propagation.  Triggered only by buddy-cell-ON or sole-remaining-
+        // cell-OFF (matching Java's entry points).
+        const processedGOff = new Set<GroupNode>();
+        const processedGOn  = new Set<GroupNode>();
+
+        function processGroupOff(g: GroupNode, d: number, dist: number, pvp: number, pEnc: number) {
+          if (processedGOff.has(g)) return;
+          processedGOff.add(g);
+          const effects = groupOffEffects?.get(g);
+          if (!effects) return;
+          for (const eff of effects) {
+            if (eff.cellOn) {
+              const gk = eff.cellOn.cell * 10 + eff.cellOn.d;
+              if (dest.addSet(eff.cellOn.cell, eff.cellOn.d)) {
+                dest.minDistOn[gk] = dist;
+                dest.pathVisitsPremiseOn[gk] = pvp;
+                dest.retOn[gk] = pEnc;
+                queue.push({ cell: eff.cellOn.cell, d: eff.cellOn.d, isOn: true, dist, pathVisitsPremise: pvp });
+              }
+            } else if (eff.groupOn) {
+              processGroupOn(eff.groupOn.group, d, dist, pvp, pEnc);
+            }
+          }
+        }
+
+        function processGroupOn(g: GroupNode, d: number, dist: number, pvp: number, pEnc: number) {
+          if (processedGOn.has(g)) return;
+          processedGOn.add(g);
+          const buddies = groupBuddiesMap?.get(g);
+          if (buddies) {
+            for (const bCell of buddies) {
+              if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
+              const bk = bCell * 10 + d;
+              if (dest.addDel(bCell, d)) {
+                dest.minDistOff[bk] = dist;
+                dest.pathVisitsPremiseOff[bk] = pvp;
+                dest.retOff[bk] = pEnc;
+                queue.push({ cell: bCell, d, isOn: false, dist, pathVisitsPremise: pvp });
+              }
+            }
+          }
+          const groupsOff = groupOnToGroupsOff?.get(g);
+          if (groupsOff) {
+            for (const g2 of groupsOff) {
+              processGroupOff(g2, d, dist, pvp, pEnc);
+            }
+          }
+        }
+
         let qi = 0;
+
+        // Premise-triggered group implications: the premise cell itself may
+        // see all cells of a group (ON table) or be the sole remaining non-group
+        // cell (OFF table).  Java adds these to the regular cell tables during
+        // fillTablesWithGroupNodes; we apply them here before BFS starts.
+        if (groupsByDigit) {
+          if (table === onTable) {
+            for (const g of groupsByDigit[premiseD]) {
+              if (g.cells.includes(premiseCi)) continue;
+              if (!g.cells.every(gc => Sudoku2.BUDDIES[gc].includes(premiseCi))) continue;
+              processGroupOff(g, premiseD, 1, 0, -1);
+            }
+          } else {
+            for (const g of groupsByDigit[premiseD]) {
+              if (g.cells.includes(premiseCi)) continue;
+              for (const houseIdx of [
+                ...(g.row >= 0 ? [g.row] : []),
+                ...(g.col >= 0 ? [9 + g.col] : []),
+                18 + g.block,
+              ]) {
+                if (!(HOUSE_CELLS[houseIdx] as number[]).includes(premiseCi)) continue;
+                const staticRem = (HOUSE_CELLS[houseIdx] as number[]).filter(
+                  hc => !g.cells.includes(hc) && s.values[hc] === 0 && s.isCandidate(hc, premiseD),
+                );
+                if (staticRem.length === 1 && staticRem[0] === premiseCi) {
+                  processGroupOn(g, premiseD, 1, 0, -1);
+                }
+              }
+            }
+          }
+        }
+
         while (qi < queue.length) {
           const { cell: c, d, isOn, dist, pathVisitsPremise: pvp } = queue[qi++];
           if (c === premiseCi && d === premiseD) continue;
@@ -1005,39 +1181,16 @@ export class TablingSolver extends AbstractSolver {
           const parentEnc = c * 20 + d * 2 + (isOn ? 1 : 0);
 
           // Dequeue-time group check: enables multi-hop group-node cascading.
-          // Cells added by add-time group checks (inside snap loop) are queued
-          // but when dequeued only follow snap entries. This dequeue-time check
-          // ensures they also trigger their own group implications (cascading).
           if (groupsByDigit) {
             if (isOn) {
-              // C is ON for d: if C sees ALL cells of group G → G is forced OFF
-              //   → sole remaining d-cell in G's house is forced ON.
+              // C is ON for d → any group G where C sees ALL of G's cells → G OFF.
               for (const g of groupsByDigit[d]) {
                 if (g.cells.includes(c)) continue;
                 if (!g.cells.every(gc => Sudoku2.BUDDIES[gc].includes(c))) continue;
-                const gDist = dist + 1;
-                for (const hIdx of [
-                  ...(g.row >= 0 ? [g.row] : []),
-                  ...(g.col >= 0 ? [9 + g.col] : []),
-                  18 + g.block,
-                ]) {
-                  const rem = (HOUSE_CELLS[hIdx] as number[]).filter(
-                    hc => !g.cells.includes(hc) && s.values[hc] === 0 && s.isCandidate(hc, d),
-                  );
-                  if (rem.length === 1) {
-                    const gk = rem[0] * 10 + d;
-                    if (dest.addSet(rem[0], d)) {
-                      dest.minDistOn[gk] = gDist;
-                      dest.pathVisitsPremiseOn[gk] = childPvp;
-                      dest.retOn[gk] = parentEnc;
-                      queue.push({ cell: rem[0], d, isOn: true, dist: gDist, pathVisitsPremise: childPvp });
-                    }
-                  }
-                }
+                processGroupOff(g, d, dist + 1, childPvp, parentEnc);
               }
             } else {
-              // C is OFF for d: H22 — if C is the sole non-group d-cell in one
-              // of G's OWN houses → G forced ON → eliminate d from G's buddies.
+              // C is OFF for d → if C was sole non-group d-cell in a house → G ON.
               for (const g of groupsByDigit[d]) {
                 if (g.cells.includes(c)) continue;
                 for (const houseIdx of [
@@ -1050,21 +1203,7 @@ export class TablingSolver extends AbstractSolver {
                     hc => !g.cells.includes(hc) && s.values[hc] === 0 && s.isCandidate(hc, d),
                   );
                   if (staticRem.length === 1 && staticRem[0] === c) {
-                    const gDist = dist + 1;
-                    const gBuddies = g.cells.reduce(
-                      (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
-                      [...Sudoku2.BUDDIES[g.cells[0]]],
-                    ).filter(c3 => !g.cells.includes(c3));
-                    for (const bCell of gBuddies) {
-                      if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
-                      const gk = bCell * 10 + d;
-                      if (dest.addDel(bCell, d)) {
-                        dest.minDistOff[gk] = gDist;
-                        dest.pathVisitsPremiseOff[gk] = childPvp;
-                        dest.retOff[gk] = parentEnc;
-                        queue.push({ cell: bCell, d, isOn: false, dist: gDist, pathVisitsPremise: childPvp });
-                      }
-                    }
+                    processGroupOn(g, d, dist + 1, childPvp, parentEnc);
                   }
                 }
               }
@@ -1081,34 +1220,13 @@ export class TablingSolver extends AbstractSolver {
                 dest.pathVisitsPremiseOn[key2] = childPvp;
                 dest.retOn[key2] = parentEnc;
                 queue.push({ cell: c2, d: d2, isOn: true, dist: newDist, pathVisitsPremise: childPvp });
-                // Group-node: c2 ON for d2 may trigger group-OFF for groups
-                // that c2 is a buddy of (Java Phase 2 equivalent).
+                // Group-node: c2 ON for d2 → groups that c2 sees go OFF.
                 if (groupsByDigit) {
-                  const c2Enc = c2 * 20 + d2 * 2 + 1; // parent = c2 ON
                   for (const g of groupsByDigit[d2]) {
                     if (g.cells.includes(c2)) continue;
                     if (!g.cells.every(gc => Sudoku2.BUDDIES[gc].includes(c2))) continue;
-                    // Group g is forced OFF by c2 ON → check for solo in each house
-                    const gDist = newDist + 1;
-                    for (const hIdx of [
-                      ...(g.row >= 0 ? [g.row] : []),
-                      ...(g.col >= 0 ? [9 + g.col] : []),
-                      18 + g.block,
-                    ]) {
-                      const rem = (HOUSE_CELLS[hIdx] as number[]).filter(
-                        hc => !g.cells.includes(hc) && s.values[hc] === 0
-                           && s.isCandidate(hc, d2),
-                      );
-                      if (rem.length === 1) {
-                        const gk = rem[0] * 10 + d2;
-                        if (dest.addSet(rem[0], d2)) {
-                          dest.minDistOn[gk] = gDist;
-                          dest.pathVisitsPremiseOn[gk] = childPvp;
-                          dest.retOn[gk] = c2Enc;
-                          queue.push({ cell: rem[0], d: d2, isOn: true, dist: gDist, pathVisitsPremise: childPvp });
-                        }
-                      }
-                    }
+                    const c2Enc = c2 * 20 + d2 * 2 + 1;
+                    processGroupOff(g, d2, newDist + 1, childPvp, c2Enc);
                   }
                 }
               } else {
@@ -1122,8 +1240,7 @@ export class TablingSolver extends AbstractSolver {
                 dest.pathVisitsPremiseOff[key2] = childPvp;
                 dest.retOff[key2] = parentEnc;
                 queue.push({ cell: c2, d: d2, isOn: false, dist: newDist, pathVisitsPremise: childPvp });
-                // Group-node: c2 OFF for d2 may make a group the sole source
-                // in a house → group ON → delete d2 from group buddies.
+                // Group-node: c2 OFF for d2 → group may become sole source.
                 if (groupsByDigit) {
                   for (const g of groupsByDigit[d2]) {
                     if (g.cells.includes(c2)) continue;
@@ -1133,29 +1250,13 @@ export class TablingSolver extends AbstractSolver {
                       18 + g.block,
                     ]) {
                       if (!(HOUSE_CELLS[houseIdx] as number[]).includes(c2)) continue;
-                      // Static trigger: count ALL non-group cells with d2 in house.
                       const staticRem = (HOUSE_CELLS[houseIdx] as number[]).filter(
                         hc => !g.cells.includes(hc) && s.values[hc] === 0
                            && s.isCandidate(hc, d2),
                       );
                       if (staticRem.length === 1 && staticRem[0] === c2) {
-                        // Group g is forced ON — delete d2 from cells that see all of g.
-                        const gDist = newDist + 1;
-                        const gBuddies = g.cells.reduce(
-                          (acc: number[], gc: number) => acc.filter(b => Sudoku2.BUDDIES[gc].includes(b)),
-                          [...Sudoku2.BUDDIES[g.cells[0]]],
-                        ).filter(c3 => !g.cells.includes(c3));
-                        const c2Enc = c2 * 20 + d2 * 2 + 0; // parent = c2 OFF
-                        for (const bCell of gBuddies) {
-                          if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d2) || dest.offSets[d2].has(bCell)) continue;
-                          const gk = bCell * 10 + d2;
-                          if (dest.addDel(bCell, d2)) {
-                            dest.minDistOff[gk] = gDist;
-                            dest.pathVisitsPremiseOff[gk] = childPvp;
-                            dest.retOff[gk] = c2Enc;
-                            queue.push({ cell: bCell, d: d2, isOn: false, dist: gDist, pathVisitsPremise: childPvp });
-                          }
-                        }
+                        const c2Enc = c2 * 20 + d2 * 2 + 0;
+                        processGroupOn(g, d2, newDist + 1, childPvp, c2Enc);
                       }
                     }
                   }

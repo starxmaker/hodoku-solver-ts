@@ -337,24 +337,41 @@ export class FishSolver extends AbstractSolver {
     const allHouses = Array.from({ length: 27 }, (_, i) => i)
       .filter(h => hCells[h].length >= 1);
 
-    const doSearch = (bPool: number[]): SolutionStep | null => {
-      for (const baseComb of kCombos(bPool, size)) {
-        // Franken: at least one cover must be a box.
-        // Mutant: allow any cover, but base must not be all-row or all-col
-        //         (handled by filtering bPool for mutant).
+    const MAX_FINS = 5;
+    const MAX_ENDO_FINS = 2;
 
-        // Compute base_cells.
+    const doSearch = (bPool: number[], allowedCoverPool?: number[]): SolutionStep | null => {
+      for (const baseComb of kCombos(bPool, size)) {
+        // Compute base_cells and detect endo-fins (cells in overlapping base houses).
         const baseCells = new Set<number>();
-        for (const h of baseComb) for (const c of hCells[h]) baseCells.add(c);
+        const cellCount = new Map<number, number>();
+        for (const h of baseComb) {
+          for (const c of hCells[h]) {
+            baseCells.add(c);
+            cellCount.set(c, (cellCount.get(c) ?? 0) + 1);
+          }
+        }
         if (baseCells.size === 0) continue;
 
-        // Cover pool: all houses not in base that have d-candidates.
+        // Endo-fins: cells appearing in more than one base house.
+        const endoFins: number[] = [];
+        for (const [c, cnt] of cellCount) {
+          if (cnt > 1) endoFins.push(c);
+        }
+
+        // Java: unfinned search skips base combos with endo-fins.
+        if (!finned && endoFins.length > 0) continue;
+        // Java: finned search limits endo-fins count.
+        if (finned && endoFins.length > MAX_ENDO_FINS) continue;
+
+        // Cover pool: allowed houses not in base that have d-candidates.
         const baseSet = new Set(baseComb);
-        const coverPool = allHouses.filter(h => !baseSet.has(h));
+        const coverPool = (allowedCoverPool ?? allHouses).filter(h => !baseSet.has(h));
 
         for (const coverComb of kCombos(coverPool, size)) {
-          // Franken constraint: at least one box (h >= 18) in cover.
-          if (fishKind === 'franken' && !coverComb.some(h => h >= 18)) continue;
+          // Franken constraint: at least one box (h >= 18) in base OR cover.
+          if (fishKind === 'franken' && !baseComb.some(h => h >= 18) &&
+              !coverComb.some(h => h >= 18)) continue;
           // Mutant constraint: at least one box in base OR cover.
           if (fishKind === 'mutant' && !baseComb.some(h => h >= 18) &&
               !coverComb.some(h => h >= 18)) continue;
@@ -363,7 +380,8 @@ export class FishSolver extends AbstractSolver {
           for (const h of coverComb) for (const c of hCells[h]) coverCells.add(c);
 
           if (!finned) {
-            // Unfinned: base_cells ⊆ cover_cells.
+            // Unfinned (no endo-fins guaranteed by check above):
+            // base_cells ⊆ cover_cells.
             if (![...baseCells].every(c => coverCells.has(c))) continue;
             const elims = [...coverCells].filter(
               c => !baseCells.has(c) && s.values[c] === 0 && s.isCandidate(c, d),
@@ -375,16 +393,22 @@ export class FishSolver extends AbstractSolver {
               };
             }
           } else {
-            // Finned: fins = base_cells \ cover_cells; must be non-empty, all in same box.
-            const fins = [...baseCells].filter(c => !coverCells.has(c));
-            if (fins.length === 0) continue;
-            const finBox = Sudoku2.box(fins[0]);
-            if (!fins.every(f => Sudoku2.box(f) === finBox)) continue;
-            // Elims: in cover, not in base, in fin box.
-            const elims = [...coverCells].filter(
-              c => !baseCells.has(c) && s.values[c] === 0 && s.isCandidate(c, d) &&
-                   Sudoku2.box(c) === finBox,
-            );
+            // Finned: fins = (base_cells \ cover_cells) ∪ endo-fins.
+            const regularFins = [...baseCells].filter(c => !coverCells.has(c));
+            const allFins = new Set([...regularFins, ...endoFins]);
+            if (allFins.size === 0) continue; // would be unfinned
+            if (allFins.size > MAX_FINS) continue;
+
+            // Elims: cover cells not in base that see ALL fins (peers of every fin).
+            const elims = [...coverCells].filter(c => {
+              if (baseCells.has(c)) return false;
+              if (s.values[c] !== 0 || !s.isCandidate(c, d)) return false;
+              const peers = Sudoku2.BUDDIES[c];
+              for (const f of allFins) {
+                if (!peers.includes(f)) return false;
+              }
+              return true;
+            });
             if (elims.length > 0) {
               return {
                 type, placements: [],
@@ -398,10 +422,13 @@ export class FishSolver extends AbstractSolver {
     };
 
     if (fishKind === 'franken') {
-      // Try rows as base (0-8), then cols (9-17).
-      const rowBase = Array.from({ length: 9 }, (_, r) => r).filter(h => hCells[h].length >= 1);
-      const colBase = Array.from({ length: 9 }, (_, c) => 9 + c).filter(h => hCells[h].length >= 1);
-      return doSearch(rowBase) ?? doSearch(colBase);
+      // Java FRANKEN: base = rows+boxes or cols+boxes, cover = cols+boxes or rows+boxes.
+      // Boxes appear in both base and cover pools; the search excludes base houses from cover.
+      const boxes = Array.from({ length: 9 }, (_, b) => 18 + b).filter(h => hCells[h].length >= 1);
+      const rows = Array.from({ length: 9 }, (_, r) => r).filter(h => hCells[h].length >= 1);
+      const cols = Array.from({ length: 9 }, (_, c) => 9 + c).filter(h => hCells[h].length >= 1);
+      return doSearch([...rows, ...boxes], [...cols, ...boxes])
+          ?? doSearch([...cols, ...boxes], [...rows, ...boxes]);
     } else {
       // Mutant: exclude combinations that are all-row or all-col (those are handled by Franken).
       // The box-in-base-or-cover constraint handles this in doSearch.
