@@ -302,37 +302,54 @@ export class ChainSolver extends AbstractSolver {
           // same-parity endpoints share the same candidate "on" state, so no cell
           // can see both with that candidate → checkRemotePairs is never called).
           if (chain.length >= 4 && chain.length % 2 === 0) {
-            // Accumulate victims from ALL valid (i,j) pairs in the chain.
-            // Valid pairs: j-i >= 3 AND j-i is odd (opposite parities).
+            // Java's trigger: only call checkRemotePairs when (start, end) endpoint pair
+            // has at least one victim (m1 != 0 || m2 != 0). For longer chains (stackLevel > 7),
+            // Java accumulates from ALL valid (i,j) pairs inside checkRemotePairs, but only
+            // if the endpoint pair first passes this gate.
             const n = chain.length;
-            const del: Candidate[] = [];
-            const seen = new Set<string>();
-            for (let ci = 0; ci < n; ci++) {
-              for (let cj = ci + 3; cj < n; cj += 2) {
-                for (const victim of BUDDIES[chain[ci]]) {
-                  if (visited.has(victim) || values[victim] !== 0) continue;
-                  if (!BUDDIES[chain[cj]].includes(victim)) continue;
-                  const k1 = `${victim}/${c1}`;
-                  const k2 = `${victim}/${c2}`;
-                  if ((candidates[victim] & (1 << c1)) && !seen.has(k1)) {
-                    seen.add(k1); del.push({ index: victim, value: c1 as Digit });
-                  }
-                  if ((candidates[victim] & (1 << c2)) && !seen.has(k2)) {
-                    seen.add(k2); del.push({ index: victim, value: c2 as Digit });
+            const endpointFirst = chain[0];
+            const endpointLast = chain[n - 1];
+            let hasEndpointVictim = false;
+            for (const victim of BUDDIES[endpointFirst]) {
+              if (visited.has(victim) || values[victim] !== 0) continue;
+              if (!BUDDIES[endpointLast].includes(victim)) continue;
+              if ((candidates[victim] & (1 << c1)) || (candidates[victim] & (1 << c2))) {
+                hasEndpointVictim = true;
+                break;
+              }
+            }
+            if (hasEndpointVictim) {
+              // Accumulate victims from ALL valid (i,j) pairs in the chain.
+              // Valid pairs: j-i >= 3 AND j-i is odd (opposite parities).
+              const del: Candidate[] = [];
+              const seen = new Set<string>();
+              for (let ci = 0; ci < n; ci++) {
+                for (let cj = ci + 3; cj < n; cj += 2) {
+                  for (const victim of BUDDIES[chain[ci]]) {
+                    if (visited.has(victim) || values[victim] !== 0) continue;
+                    if (!BUDDIES[chain[cj]].includes(victim)) continue;
+                    const k1 = `${victim}/${c1}`;
+                    const k2 = `${victim}/${c2}`;
+                    if ((candidates[victim] & (1 << c1)) && !seen.has(k1)) {
+                      seen.add(k1); del.push({ index: victim, value: c1 as Digit });
+                    }
+                    if ((candidates[victim] & (1 << c2)) && !seen.has(k2)) {
+                      seen.add(k2); del.push({ index: victim, value: c2 as Digit });
+                    }
                   }
                 }
               }
-            }
 
-            if (del.length > 0) {
-              // Java chain length = 2 * TS chain length (2 entries per bivalue cell)
-              // stackLevel = (Java chain length) - 1 = 2*n - 1
-              const stackLevel = n * 2 - 1;
-              const elimKey = del.map(c => `${c.index}/${c.value}`).sort().join(',');
-              const existing = deletesMap.get(elimKey);
-              if (existing === undefined || existing > stackLevel) {
-                deletesMap.set(elimKey, stackLevel);
-                allSteps.push({ del, chainLen: stackLevel });
+              if (del.length > 0) {
+                // Java chain length = 2 * TS chain length (2 entries per bivalue cell)
+                // stackLevel = (Java chain length) - 1 = 2*n - 1
+                const stackLevel = n * 2 - 1;
+                const elimKey = del.map(c => `${c.index}/${c.value}`).sort().join(',');
+                const existing = deletesMap.get(elimKey);
+                if (existing === undefined || existing > stackLevel) {
+                  deletesMap.set(elimKey, stackLevel);
+                  allSteps.push({ del, chainLen: stackLevel });
+                }
               }
             }
           }
