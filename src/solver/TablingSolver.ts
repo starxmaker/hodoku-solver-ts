@@ -333,6 +333,7 @@ export class TablingSolver extends AbstractSolver {
     this._collectNiceLoops(this._onTable, true, candidates);
     this._collectNiceLoops(this._offTable, true, candidates);
     this._collectAics(this._offTable, candidates);
+
     if (candidates.length === 0) return null;
 
     candidates.sort(_compareSteps);
@@ -457,6 +458,23 @@ export class TablingSolver extends AbstractSolver {
       }
     }
 
+    // groupOnToGroupsOffIdx[gi]: indices of non-overlapping groups that share a
+    // house with group gi for the same digit — those groups turn OFF when gi is ON.
+    const groupOnToGroupsOffIdx: number[][] = groups.map((g, gi) => {
+      const result: number[] = [];
+      for (let gj = 0; gj < groups.length; gj++) {
+        if (gj === gi) continue;
+        const g2 = groups[gj];
+        if (g.digit !== g2.digit) continue;
+        if (g.cells.some(c => g2.cells.includes(c))) continue;
+        const shares = (g.row >= 0 && g.row === g2.row) ||
+                       (g.col >= 0 && g.col === g2.col) ||
+                       (g.block === g2.block);
+        if (shares) result.push(gj);
+      }
+      return result;
+    });
+
     for (const [table, snap] of [[onTable, onSnap], [offTable, offSnap]] as const) {
       for (let ti = 0; ti < TABLE_SIZE; ti++) {
         const dest = table[ti];
@@ -482,63 +500,72 @@ export class TablingSolver extends AbstractSolver {
         if (table === onTable) dest.onSets[premiseD].add(premiseCi);
         else                   dest.offSets[premiseD].add(premiseCi);
 
+        // Group cascading helpers: implement multi-hop group-node propagation
+        // matching Java's fillTablesWithGroupNodes + expandTables.
+        // cascadeGroupOff: group OFF → sole cell ON or partner group ON → cascade
+        // cascadeGroupOn: group ON → buddy cells OFF + other groups OFF → cascade
+        const cascadedOff = new Set<number>();
+        const cascadedOn  = new Set<number>();
+
+        const cascadeGroupOff = (gi: number, d: number, gDist: number, pEnc: number) => {
+          if (cascadedOff.has(gi)) return;
+          cascadedOff.add(gi);
+          const g = groups[gi];
+          for (const info of groupHouseInfos[gi]) {
+            if (info.rem.length === 1) {
+              const cell = info.rem[0];
+              const key = cell * 10 + d;
+              if (dest.addSet(cell, d)) {
+                dest.minDistOn[key] = gDist;
+                dest.retOn[key] = pEnc;
+                dest.groupFiredOn[key] = 1;
+                dest.groupNodeCellsOn.set(key, [...g.cells]);
+                this._groupImplicationFired = true;
+                queue2.push({ cell, d, isOn: true, dist: gDist });
+              }
+            } else if (info.g2Idx >= 0) {
+              cascadeGroupOn(info.g2Idx, d, gDist, pEnc);
+            }
+          }
+        };
+
+        const cascadeGroupOn = (gi: number, d: number, gDist: number, pEnc: number) => {
+          if (cascadedOn.has(gi)) return;
+          cascadedOn.add(gi);
+          const g = groups[gi];
+          for (const bCell of gBuddies[gi]) {
+            if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
+            const bKey = bCell * 10 + d;
+            if (dest.addDel(bCell, d)) {
+              dest.minDistOff[bKey] = gDist;
+              dest.retOff[bKey] = pEnc;
+              dest.groupFiredOff[bKey] = 1;
+              dest.groupNodeCellsOff.set(bKey, [...g.cells]);
+              this._groupImplicationFired = true;
+              queue2.push({ cell: bCell, d, isOn: false, dist: gDist });
+            }
+          }
+          for (const g2i of groupOnToGroupsOffIdx[gi]) {
+            cascadeGroupOff(g2i, d, gDist, pEnc);
+          }
+        };
+
         // Process group implications of the premise cell itself — matches Java's
         // fillTablesWithGroupNodes which also processes the premise as a starting point.
-        // The BFS below skips the premise cell to prevent loops, so group effects
-        // that start FROM the premise must be seeded upfront.
         const premiseIsOn = (table === onTable);
         const premiseEnc  = premiseCi * 20 + premiseD * 2 + (premiseIsOn ? 1 : 0);
         if (premiseIsOn) {
-          // Premise ON: use precomputed cellSeesGroupIdxs for fast lookup.
           const seenByPremise = cellSeesGroupIdxs.get(premiseCi * 10 + premiseD);
           if (seenByPremise) {
             for (const gi of seenByPremise) {
-              const g = groups[gi];
-              const gOffDist = 2;
-              for (const info of groupHouseInfos[gi]) {
-                if (info.rem.length === 1) {
-                  if (dest.addSet(info.rem[0], premiseD)) {
-                    dest.minDistOn[info.rem[0] * 10 + premiseD] = gOffDist;
-                    dest.retOn[info.rem[0] * 10 + premiseD] = premiseEnc;
-                    dest.groupFiredOn[info.rem[0] * 10 + premiseD] = 1;
-                    dest.groupNodeCellsOn.set(info.rem[0] * 10 + premiseD, [...g.cells]);
-                    this._groupImplicationFired = true;
-                    queue2.push({ cell: info.rem[0], d: premiseD, isOn: true, dist: gOffDist });
-                  }
-                } else if (info.g2Idx >= 0) {
-                  const g2 = groups[info.g2Idx];
-                  for (const bCell of gBuddies[info.g2Idx]) {
-                    if (s.values[bCell] !== 0 || !s.isCandidate(bCell, premiseD) || dest.offSets[premiseD].has(bCell)) continue;
-                    if (dest.addDel(bCell, premiseD)) {
-                      dest.minDistOff[bCell * 10 + premiseD] = gOffDist;
-                      dest.retOff[bCell * 10 + premiseD] = premiseEnc;
-                      dest.groupFiredOff[bCell * 10 + premiseD] = 1;
-                      dest.groupNodeCellsOff.set(bCell * 10 + premiseD, [...g2.cells]);
-                      this._groupImplicationFired = true;
-                      queue2.push({ cell: bCell, d: premiseD, isOn: false, dist: gOffDist });
-                    }
-                  }
-                }
-              }
+              cascadeGroupOff(gi, premiseD, 2, premiseEnc);
             }
           }
         } else {
-          // Premise OFF: use precomputed h22InfoMap for fast lookup.
           const h22Premise = h22InfoMap.get(premiseCi * 10 + premiseD);
           if (h22Premise) {
             for (const gi of h22Premise) {
-              const g = groups[gi];
-              for (const bCell of gBuddies[gi]) {
-                if (s.values[bCell] !== 0 || !s.isCandidate(bCell, premiseD) || dest.offSets[premiseD].has(bCell)) continue;
-                if (dest.addDel(bCell, premiseD)) {
-                  dest.minDistOff[bCell * 10 + premiseD] = 2;
-                  dest.retOff[bCell * 10 + premiseD] = premiseEnc;
-                  dest.groupFiredOff[bCell * 10 + premiseD] = 1;
-                  dest.groupNodeCellsOff.set(bCell * 10 + premiseD, [...g.cells]);
-                  this._groupImplicationFired = true;
-                  queue2.push({ cell: bCell, d: premiseD, isOn: false, dist: 2 });
-                }
-              }
+              cascadeGroupOn(gi, premiseD, 2, premiseEnc);
             }
           }
         }
@@ -591,57 +618,17 @@ export class TablingSolver extends AbstractSolver {
           // Fires AFTER snap expansion so that shorter direct-snap paths (dist+1) are
           // stored first; group-hop paths (dist+2) are rejected if already stored.
           if (isOn) {
-            // C is ON for d: use precomputed cellSeesGroupIdxs for fast group lookup.
             const seenIdxs = cellSeesGroupIdxs.get(c * 10 + d);
             if (seenIdxs) {
               for (const gi of seenIdxs) {
-                const g = groups[gi];
-                const gOffDist = dist + 2;
-                for (const info of groupHouseInfos[gi]) {
-                  if (info.rem.length === 1) {
-                    if (dest.addSet(info.rem[0], d)) {
-                      dest.minDistOn[info.rem[0] * 10 + d] = gOffDist;
-                      dest.retOn[info.rem[0] * 10 + d] = parentEnc;
-                      dest.groupFiredOn[info.rem[0] * 10 + d] = 1;
-                      dest.groupNodeCellsOn.set(info.rem[0] * 10 + d, [...g.cells]);
-                      this._groupImplicationFired = true;
-                      queue2.push({ cell: info.rem[0], d, isOn: true, dist: gOffDist });
-                    }
-                  } else if (info.g2Idx >= 0) {
-                    const g2 = groups[info.g2Idx];
-                    for (const bCell of gBuddies[info.g2Idx]) {
-                      if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
-                      if (dest.addDel(bCell, d)) {
-                        dest.minDistOff[bCell * 10 + d] = gOffDist;
-                        dest.retOff[bCell * 10 + d] = parentEnc;
-                        dest.groupFiredOff[bCell * 10 + d] = 1;
-                        dest.groupNodeCellsOff.set(bCell * 10 + d, [...g2.cells]);
-                        this._groupImplicationFired = true;
-                        queue2.push({ cell: bCell, d, isOn: false, dist: gOffDist });
-                      }
-                    }
-                  }
-                }
+                cascadeGroupOff(gi, d, dist + 2, parentEnc);
               }
             }
           } else {
-            // C is OFF for d: use precomputed h22InfoMap for fast group lookup.
             const h22Idxs = h22InfoMap.get(c * 10 + d);
             if (h22Idxs) {
               for (const gi of h22Idxs) {
-                const g = groups[gi];
-                const gTriggeredDist = dist + 2;
-                for (const bCell of gBuddies[gi]) {
-                  if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
-                  if (dest.addDel(bCell, d)) {
-                    dest.minDistOff[bCell * 10 + d] = gTriggeredDist;
-                    dest.retOff[bCell * 10 + d] = parentEnc;
-                    dest.groupFiredOff[bCell * 10 + d] = 1;
-                    dest.groupNodeCellsOff.set(bCell * 10 + d, [...g.cells]);
-                    this._groupImplicationFired = true;
-                    queue2.push({ cell: bCell, d, isOn: false, dist: gTriggeredDist });
-                  }
-                }
+                cascadeGroupOn(gi, d, dist + 2, parentEnc);
               }
             }
           }
