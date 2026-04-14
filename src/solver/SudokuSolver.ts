@@ -448,7 +448,8 @@ export class SudokuSolver extends AbstractSolver {
             const elims = step.candidatesToDelete.map(c => `r${Math.floor(c.index/9)+1}c${c.index%9+1}=${c.value}`).join(',');
             const places = step.placements.map(c => `r${Math.floor(c.index/9)+1}c${c.index%9+1}=${c.value}`).join(',');
             const detail = [elims && `ELIM=[${elims}]`, places && `SET=[${places}]`].filter(Boolean).join(' ');
-            process.stdout.write(`${step.type}+${stepScore}=${score}${detail ? ' '+detail : ''}\n`);
+            const chainStr = (step as any).chainString || '';
+            process.stdout.write(`${step.type}+${stepScore}=${score}${detail ? ' '+detail : ''}${chainStr ? ' CHAIN='+chainStr : ''}\n`);
           }
           // Track minimum difficulty imposed by this technique (H7).
           const techLevelIdx = STEP_MIN_DIFFICULTY_IDX[step.type] ?? 0;

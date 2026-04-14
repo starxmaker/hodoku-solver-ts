@@ -90,6 +90,13 @@ class TableEntry {
   /** Group cells for group-fired OFF entries. Keyed by ti = cell*10+digit. */
   readonly groupNodeCellsOff: Map<number, number[]> = new Map();
 
+  /** Group indices of PRIOR cascade groups for ON entries (excluding the directly connected group).
+   *  When a group cascade involves multiple intermediate groups (e.g. [7,16]→[70,79]→[60,62]),
+   *  this stores the indices of [7,16] and [70,79]; the direct group [60,62] is in groupNodeCellsOn. */
+  readonly groupCascadeGIsOn:  Map<number, number[]> = new Map();
+  /** Group indices of PRIOR cascade groups for OFF entries (excluding the directly connected group). */
+  readonly groupCascadeGIsOff: Map<number, number[]> = new Map();
+
   /** Alternate (NORMAL) parent for ON entries where GROUP won at same BFS distance.
    *  Keyed by ti = cell*10+digit.  Encoded same as retOn. */
   readonly altRetOn:  Map<number, number> = new Map();
@@ -129,6 +136,8 @@ class TableEntry {
     this.normalDistOff.fill(0);
     this.groupNodeCellsOn.clear();
     this.groupNodeCellsOff.clear();
+    this.groupCascadeGIsOn.clear();
+    this.groupCascadeGIsOff.clear();
     this.altRetOn.clear();
     this.altRetOff.clear();
     this.allNormalParentsOn.clear();
@@ -227,6 +236,7 @@ export class TablingSolver extends AbstractSolver {
   private readonly _onTable: TableEntry[] = Array.from({ length: TABLE_SIZE }, () => new TableEntry());
   private readonly _offTable: TableEntry[] = Array.from({ length: TABLE_SIZE }, () => new TableEntry());
   private _groupImplicationFired = false;
+  private _groups: GroupNode[] = [];
   private _alsImplicationFired = false;
   private _krakenFilled = false;
 
@@ -337,6 +347,7 @@ export class TablingSolver extends AbstractSolver {
   private _getGroupedNiceLoop(): SolutionStep | null {
     const groups = collectGroupNodes(this.sudoku);
     if (groups.length === 0) return null;
+    this._groups = groups;
 
     // H4: Java ALLOW_ALS_IN_TABLING_CHAINS=false by default - no ALS expansion for grouped loops.
     this._groupImplicationFired = false;
@@ -522,10 +533,11 @@ export class TablingSolver extends AbstractSolver {
         const processedGroupOff = new Set<number>();
         const processedGroupOn  = new Set<number>();
         // Track group ON parameters for the post-BFS cascade pass
-        const groupOnParams = new Map<number, { d: number, gDist: number, pEnc: number }>();
+        const groupOnParams = new Map<number, { d: number, gDist: number, pEnc: number, cascadeGIs?: number[] }>();
 
-        /** Group gi turned OFF: sole remaining cell turns ON, or partner group turns ON → buddy cells OFF. */
-        const handleGroupOff = (gi: number, d: number, gDist: number, pEnc: number) => {
+        /** Group gi turned OFF: sole remaining cell turns ON, or partner group turns ON → buddy cells OFF.
+         *  cascadeGIs accumulates group indices from prior cascade steps (undefined for fresh start). */
+        const handleGroupOff = (gi: number, d: number, gDist: number, pEnc: number, cascadeGIs?: number[]) => {
           if (processedGroupOff.has(gi)) return;
           processedGroupOff.add(gi);
           const g = groups[gi];
@@ -538,13 +550,17 @@ export class TablingSolver extends AbstractSolver {
                 dest.retOn[key] = pEnc;
                 dest.groupFiredOn[key] = 1;
                 dest.groupNodeCellsOn.set(key, [...g.cells]);
+                if (cascadeGIs) {
+                  dest.groupCascadeGIsOn.set(key, cascadeGIs);
+                }
                 this._groupImplicationFired = true;
                 queue2.push({ cell, d, isOn: true, dist: gDist });
               }
             } else if (info.g2Idx >= 0) {
               // Partner group turns ON → its buddy cells OFF
               // Java: partner H ON is one hop from G OFF, so distance = gDist + 1
-              handleGroupOn(info.g2Idx, d, gDist + 1, pEnc);
+              const newGIs= cascadeGIs ? [...cascadeGIs, gi] : [gi];
+              handleGroupOn(info.g2Idx, d, gDist + 1, pEnc, newGIs);
             }
           }
         };
@@ -553,11 +569,12 @@ export class TablingSolver extends AbstractSolver {
          *  groupOnToGroupsOff is deferred to a post-BFS pass so that the
          *  main BFS produces the same entry order as Java (which processes
          *  group entries only when dequeued, not inline). */
-        const handleGroupOn = (gi: number, d: number, gDist: number, pEnc: number) => {
+        const handleGroupOn = (gi: number, d: number, gDist: number, pEnc: number, cascadeGIs?: number[]) => {
           if (processedGroupOn.has(gi)) return;
           processedGroupOn.add(gi);
-          groupOnParams.set(gi, { d, gDist, pEnc });
           const g = groups[gi];
+          const fullGIs = cascadeGIs ? [...cascadeGIs, gi] : [gi];
+          groupOnParams.set(gi, { d, gDist, pEnc, cascadeGIs: fullGIs });
           for (const bCell of gBuddies[gi]) {
             if (s.values[bCell] !== 0 || !s.isCandidate(bCell, d) || dest.offSets[d].has(bCell)) continue;
             const bKey = bCell * 10 + d;
@@ -566,6 +583,9 @@ export class TablingSolver extends AbstractSolver {
               dest.retOff[bKey] = pEnc;
               dest.groupFiredOff[bKey] = 1;
               dest.groupNodeCellsOff.set(bKey, [...g.cells]);
+              if (cascadeGIs) {
+                dest.groupCascadeGIsOff.set(bKey, cascadeGIs);
+              }
               this._groupImplicationFired = true;
               queue2.push({ cell: bCell, d, isOn: false, dist: gDist });
             }
@@ -677,7 +697,7 @@ export class TablingSolver extends AbstractSolver {
             for (const g2i of groupOnToGroupsOffIdx[gi]) {
               if (!processedGroupOff.has(g2i)) {
                 const prevQLen = queue2.length;
-                handleGroupOff(g2i, info.d, info.gDist + 1, info.pEnc);
+                handleGroupOff(g2i, info.d, info.gDist + 1, info.pEnc, info.cascadeGIs);
                 if (queue2.length > prevQLen) cascadeAdded = true;
               }
             }
@@ -734,11 +754,14 @@ export class TablingSolver extends AbstractSolver {
             } else {
               const h22Idxs = h22InfoMap.get(c * 10 + d);
               if (h22Idxs) {
-                for (const gi2 of h22Idxs) handleGroupOn(gi2, d, dist + 2, parentEnc);
+                for (const gi2 of h22Idxs) {
+                  handleGroupOn(gi2, d, dist + 2, parentEnc);
+                }
               }
             }
           }
         }
+
       }
     }
   }
@@ -1396,8 +1419,10 @@ export class TablingSolver extends AbstractSolver {
         for (const p of parents) {
           if (this._buildAndCheckLasso(entry, ci, endD, endIsOn, p)) return true;
         }
-        // All NORMAL parents failed — also try the GROUP parent as fallback.
-        // Java's GROUP_NODE entry has a separate parent chain that may be lasso-free.
+        // Java only checks NORMAL_NODE entries in checkNiceLoops.
+        // If all NORMAL parents fail the lasso check, reject — do NOT
+        // fall back to the GROUP parent (Java wouldn't check it).
+        return false;
       }
       // Fall through to use GROUP parent (ret)
     }
@@ -1417,10 +1442,8 @@ export class TablingSolver extends AbstractSolver {
    */
   private _buildAndCheckLasso(
     entry: TableEntry, ci: number, endD: number, endIsOn: boolean, startParent: number,
+    backwardOnly = false,
   ): boolean {
-    // Java would use the NORMAL parent for the conclusion entry if one exists.
-    // Try the alt path first; if the lasso check fails, fall back to the
-    // primary path (startParent), matching Java's dual-entry behaviour.
     const concKey = ci * 10 + endD;
     const concAlt = endIsOn ? entry.altRetOn.get(concKey) : entry.altRetOff.get(concKey);
 
@@ -1434,31 +1457,34 @@ export class TablingSolver extends AbstractSolver {
       backCells.push(curCell);
       backGroup.push(undefined);
 
-      // Track the first forward step from premise.  Each time the backward walk
-      // sees nextCell === ci it means the current node points to the premise, so
-      // curCell at that moment is the first step after premise in forward direction.
-      // We overwrite on every such occurrence so the last one (closest to premise)
-      // wins, matching Java's checkNiceLoop getCellIndex(0)==getCellIndex(1) check.
       let firstStepFromPremise = -1;
 
       let steps = 0;
       while (steps < 200) {
         const k = curCell * 10 + curD;
-        // Prefer NORMAL alternate parent (Java's nodeType rewrite)
         const altPar = curIsOn ? entry.altRetOn.get(k) : entry.altRetOff.get(k);
         const usePar = altPar !== undefined
           ? altPar
           : (curIsOn ? entry.retOn[k] : entry.retOff[k]);
         if (usePar === -1 && altPar === undefined) break;
 
-        // Insert GROUP_NODE only for entries Java would keep as GROUP (no alternate)
         if (altPar === undefined) {
           const gCells = curIsOn
             ? entry.groupNodeCellsOn.get(k)
             : entry.groupNodeCellsOff.get(k);
           if (gCells) {
             backCells.push(gCells[0]);
-            backGroup.push(gCells);
+            // Materialize cascade cells from group indices for the lasso check
+            const cascGIs = curIsOn
+              ? entry.groupCascadeGIsOn.get(k)
+              : entry.groupCascadeGIsOff.get(k);
+            let allCascadeCells: number[] | undefined;
+            if (cascGIs) {  // Materialize cascade cells for lasso check
+              allCascadeCells = [];
+              for (const gIdx of cascGIs) for (const c of this._groups[gIdx].cells) allCascadeCells.push(c);
+              for (const c of gCells) allCascadeCells.push(c);
+            }
+            backGroup.push(allCascadeCells || gCells);
           }
         }
 
@@ -1474,42 +1500,63 @@ export class TablingSolver extends AbstractSolver {
       backCells.push(ci); // premise
       backGroup.push(undefined);
 
-      // Java's Nice Loop check (addChain line 2802): the conclusion's immediate
-      // parent must not be in the same cell as the conclusion.
       if (backCells[1] === ci) continue;
-
-      // Java's checkNiceLoop: the first step AFTER premise must not be the same
-      // cell as premise.  This rejects chains whose backward path goes through a
-      // SNAP entry (within-cell deletion) as the first hop from premise, matching
-      // Java's getCellIndex(0)==getCellIndex(1) rejection.
       if (firstStepFromPremise === ci) continue;
 
-      const ok = TablingSolver._lassoCheck(backCells, backGroup, ci);
+      const ok = TablingSolver._lassoCheck(backCells, backGroup, ci, backwardOnly);
       if (ok) return true;
     }
     return false;
   }
 
   /** Standard lasso check shared by nice-loop and AIC chains.
-   *  Returns true = no lasso (valid), false = lasso found (invalid). */
+   *  Returns true = no lasso (valid), false = lasso found (invalid).
+   *
+   *  Checks both directions: premise→conclusion (backward) and conclusion→premise
+   *  (forward).  Java checks premise→conclusion only, but because TS may trace
+   *  the loop in the opposite direction (different BFS parent order), a lasso
+   *  that Java catches in its direction can only be caught in the other direction
+   *  by TS.  Checking both ensures any lasso visible in either traversal is caught. */
   private static _lassoCheck(
     backCells: number[], backGroup: (number[] | undefined)[], exemptCell: number,
+    backwardOnly = false,
   ): boolean {
     const n = backCells.length;
-    const lassoSet = new Set<number>();
-    let lastCell = -1;
-    let lastGroup: number[] | undefined;
-    for (let i = n - 1; i >= 0; i--) {
-      const cell = backCells[i];
-      if (lassoSet.has(cell)) return false;
-      if (lastCell !== -1 && lastCell !== exemptCell) {
-        lassoSet.add(lastCell);
-        if (lastGroup) {
-          for (const gc of lastGroup) lassoSet.add(gc);
+    // Backward pass: premise → conclusion (i = n-1 → 0)
+    {
+      const lassoSet = new Set<number>();
+      let lastCell = -1;
+      let lastGroup: number[] | undefined;
+      for (let i = n - 1; i >= 0; i--) {
+        const cell = backCells[i];
+        if (lassoSet.has(cell)) return false;
+        if (lastCell !== -1 && lastCell !== exemptCell) {
+          lassoSet.add(lastCell);
+          if (lastGroup) {
+            for (const gc of lastGroup) lassoSet.add(gc);
+          }
         }
+        lastCell = cell;
+        lastGroup = backGroup[i];
       }
-      lastCell = cell;
-      lastGroup = backGroup[i];
+    }
+    // Forward pass: conclusion → premise (i = 0 → n-1)
+    if (!backwardOnly) {
+      const lassoSet = new Set<number>();
+      let lastCell = -1;
+      let lastGroup: number[] | undefined;
+      for (let i = 0; i < n; i++) {
+        const cell = backCells[i];
+        if (lassoSet.has(cell)) return false;
+        if (lastCell !== -1 && lastCell !== exemptCell) {
+          lassoSet.add(lastCell);
+          if (lastGroup) {
+            for (const gc of lastGroup) lassoSet.add(gc);
+          }
+        }
+        lastCell = cell;
+        lastGroup = backGroup[i];
+      }
     }
     return true;
   }
@@ -1534,7 +1581,7 @@ export class TablingSolver extends AbstractSolver {
         if (!lassoOk) {
           // All NORMAL parents failed — also try the GROUP parent as fallback.
           const gp = endIsOn ? entry.retOn[key0] : entry.retOff[key0];
-          if (gp !== -1) lassoOk = this._buildAndCheckLasso(entry, ci, endD, endIsOn, gp);
+          if (gp !== -1) lassoOk = this._buildAndCheckLasso(entry, ci, endD, endIsOn, gp, true);
         }
         if (!lassoOk) return false;
       } else {
