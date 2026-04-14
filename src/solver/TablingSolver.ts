@@ -96,6 +96,18 @@ class TableEntry {
   /** Alternate (NORMAL) parent for OFF entries where GROUP won at same BFS distance. */
   readonly altRetOff: Map<number, number> = new Map();
 
+  /** All NORMAL snap parents that reached a GROUP-fired ON entry.
+   *  Java has separate NORMAL_NODE entries; we try each parent in the lasso check
+   *  to find the one that matches Java's lasso-free chain (if any). */
+  readonly allNormalParentsOn:  Map<number, number[]> = new Map();
+  /** All NORMAL snap parents that reached a GROUP-fired OFF entry. */
+  readonly allNormalParentsOff: Map<number, number[]> = new Map();
+
+  /** Minimum BFS distance among all NORMAL snap paths for GROUP-fired ON entries. */
+  readonly normalDistOn: Uint16Array = new Uint16Array(TABLE_SIZE);
+  /** Minimum BFS distance among all NORMAL snap paths for GROUP-fired OFF entries. */
+  readonly normalDistOff: Uint16Array = new Uint16Array(TABLE_SIZE);
+
   private _populated = false;
   get populated(): boolean { return this._populated; }
 
@@ -113,10 +125,14 @@ class TableEntry {
     this.retOff.fill(-1);
     this.groupFiredOn.fill(0);
     this.groupFiredOff.fill(0);
+    this.normalDistOn.fill(0);
+    this.normalDistOff.fill(0);
     this.groupNodeCellsOn.clear();
     this.groupNodeCellsOff.clear();
     this.altRetOn.clear();
     this.altRetOff.clear();
+    this.allNormalParentsOn.clear();
+    this.allNormalParentsOff.clear();
   }
 
   addSet(cell: number, d: number): boolean {
@@ -597,24 +613,32 @@ export class TablingSolver extends AbstractSolver {
                 dest.minDistOn[key] = newDist;
                 dest.retOn[key] = parentEnc;
                 queue2.push({ cell: c2, d: d2, isOn: true, dist: newDist });
-              } else if (
-                // Java's expandTables prefers NORMAL nodes over GROUP nodes at
-                // the same distance (nodeType comparison).  Snap entries are
-                // always NORMAL.  Store the NORMAL parent as an alternate so
-                // the lasso check can verify the non-group path.
-                dest.minDistOn[key] === newDist && dest.groupFiredOn[key] === 1
-              ) {
-                dest.altRetOn.set(key, parentEnc);
+              } else if (dest.groupFiredOn[key] === 1) {
+                let list = dest.allNormalParentsOn.get(key);
+                if (!list) { list = []; dest.allNormalParentsOn.set(key, list); }
+                list.push(parentEnc);
+                if (dest.normalDistOn[key] === 0 || newDist < dest.normalDistOn[key]) {
+                  dest.normalDistOn[key] = newDist;
+                }
+                if (dest.minDistOn[key] === newDist) {
+                  dest.altRetOn.set(key, parentEnc);
+                }
               }
             } else {
               if (dest.addDel(c2, d2)) {
                 dest.minDistOff[key] = newDist;
                 dest.retOff[key] = parentEnc;
                 queue2.push({ cell: c2, d: d2, isOn: false, dist: newDist });
-              } else if (
-                dest.minDistOff[key] === newDist && dest.groupFiredOff[key] === 1
-              ) {
-                dest.altRetOff.set(key, parentEnc);
+              } else if (dest.groupFiredOff[key] === 1) {
+                let list = dest.allNormalParentsOff.get(key);
+                if (!list) { list = []; dest.allNormalParentsOff.set(key, list); }
+                list.push(parentEnc);
+                if (dest.normalDistOff[key] === 0 || newDist < dest.normalDistOff[key]) {
+                  dest.normalDistOff[key] = newDist;
+                }
+                if (dest.minDistOff[key] === newDist) {
+                  dest.altRetOff.set(key, parentEnc);
+                }
               }
             }
           }
@@ -673,16 +697,32 @@ export class TablingSolver extends AbstractSolver {
                   dest.minDistOn[key] = newDist;
                   dest.retOn[key] = parentEnc;
                   queue2.push({ cell: c2, d: d2, isOn: true, dist: newDist });
-                } else if (dest.minDistOn[key] === newDist && dest.groupFiredOn[key] === 1) {
-                  dest.altRetOn.set(key, parentEnc);
+                } else if (dest.groupFiredOn[key] === 1) {
+                  let list = dest.allNormalParentsOn.get(key);
+                  if (!list) { list = []; dest.allNormalParentsOn.set(key, list); }
+                  list.push(parentEnc);
+                  if (dest.normalDistOn[key] === 0 || newDist < dest.normalDistOn[key]) {
+                    dest.normalDistOn[key] = newDist;
+                  }
+                  if (dest.minDistOn[key] === newDist) {
+                    dest.altRetOn.set(key, parentEnc);
+                  }
                 }
               } else {
                 if (dest.addDel(c2, d2)) {
                   dest.minDistOff[key] = newDist;
                   dest.retOff[key] = parentEnc;
                   queue2.push({ cell: c2, d: d2, isOn: false, dist: newDist });
-                } else if (dest.minDistOff[key] === newDist && dest.groupFiredOff[key] === 1) {
-                  dest.altRetOff.set(key, parentEnc);
+                } else if (dest.groupFiredOff[key] === 1) {
+                  let list = dest.allNormalParentsOff.get(key);
+                  if (!list) { list = []; dest.allNormalParentsOff.set(key, list); }
+                  list.push(parentEnc);
+                  if (dest.normalDistOff[key] === 0 || newDist < dest.normalDistOff[key]) {
+                    dest.normalDistOff[key] = newDist;
+                  }
+                  if (dest.minDistOff[key] === newDist) {
+                    dest.altRetOff.set(key, parentEnc);
+                  }
                 }
               }
             }
@@ -1347,8 +1387,21 @@ export class TablingSolver extends AbstractSolver {
    */
   private _chainIsValid(entry: TableEntry, ci: number, endD: number, endIsOn: boolean): boolean {
     const key = ci * 10 + endD;
+    const gf = endIsOn ? entry.groupFiredOn[key] : entry.groupFiredOff[key];
+    if (gf) {
+      // GROUP conclusion: try ALL collected NORMAL parents for the lasso check.
+      const parents = endIsOn ? entry.allNormalParentsOn.get(key) : entry.allNormalParentsOff.get(key);
+      if (parents && parents.length > 0) {
+        // Has NORMAL parents — accept if at least one is lasso-free
+        for (const p of parents) {
+          if (this._buildAndCheckLasso(entry, ci, endD, endIsOn, p)) return true;
+        }
+        // All NORMAL parents failed — also try the GROUP parent as fallback.
+        // Java's GROUP_NODE entry has a separate parent chain that may be lasso-free.
+      }
+      // Fall through to use GROUP parent (ret)
+    }
     const parent = endIsOn ? entry.retOn[key] : entry.retOff[key];
-    // dist=1 entry: premise → conclusion directly (no intermediate chain)
     if (parent === -1) return false;
     return this._buildAndCheckLasso(entry, ci, endD, endIsOn, parent);
   }
@@ -1381,6 +1434,13 @@ export class TablingSolver extends AbstractSolver {
       backCells.push(curCell);
       backGroup.push(undefined);
 
+      // Track the first forward step from premise.  Each time the backward walk
+      // sees nextCell === ci it means the current node points to the premise, so
+      // curCell at that moment is the first step after premise in forward direction.
+      // We overwrite on every such occurrence so the last one (closest to premise)
+      // wins, matching Java's checkNiceLoop getCellIndex(0)==getCellIndex(1) check.
+      let firstStepFromPremise = -1;
+
       let steps = 0;
       while (steps < 200) {
         const k = curCell * 10 + curD;
@@ -1402,7 +1462,9 @@ export class TablingSolver extends AbstractSolver {
           }
         }
 
-        curCell = (usePar / 20) | 0;
+        const nextCell = (usePar / 20) | 0;
+        if (nextCell === ci) firstStepFromPremise = curCell;
+        curCell = nextCell;
         curD    = (usePar % 20) >> 1;
         curIsOn = (usePar & 1) === 1;
         backCells.push(curCell);
@@ -1415,6 +1477,12 @@ export class TablingSolver extends AbstractSolver {
       // Java's Nice Loop check (addChain line 2802): the conclusion's immediate
       // parent must not be in the same cell as the conclusion.
       if (backCells[1] === ci) continue;
+
+      // Java's checkNiceLoop: the first step AFTER premise must not be the same
+      // cell as premise.  This rejects chains whose backward path goes through a
+      // SNAP entry (within-cell deletion) as the first hop from premise, matching
+      // Java's getCellIndex(0)==getCellIndex(1) rejection.
+      if (firstStepFromPremise === ci) continue;
 
       const ok = TablingSolver._lassoCheck(backCells, backGroup, ci);
       if (ok) return true;
@@ -1455,12 +1523,33 @@ export class TablingSolver extends AbstractSolver {
   private _chainUsesGroupNode(entry: TableEntry, ci: number, endD: number, endIsOn: boolean): boolean {
     // Must also pass the same lasso/validity check as non-grouped chains
     const key0 = ci * 10 + endD;
-    const parent = endIsOn ? entry.retOn[key0] : entry.retOff[key0];
-    if (parent === -1) return false;
-    const lassoOk = this._buildAndCheckLasso(entry, ci, endD, endIsOn, parent);
-    if (!lassoOk) return false;
+    const gf0 = endIsOn ? entry.groupFiredOn[key0] : entry.groupFiredOff[key0];
+    if (gf0) {
+      const parents = endIsOn ? entry.allNormalParentsOn.get(key0) : entry.allNormalParentsOff.get(key0);
+      if (parents && parents.length > 0) {
+        let lassoOk = false;
+        for (const p of parents) {
+          if (this._buildAndCheckLasso(entry, ci, endD, endIsOn, p)) { lassoOk = true; break; }
+        }
+        if (!lassoOk) {
+          // All NORMAL parents failed — also try the GROUP parent as fallback.
+          const gp = endIsOn ? entry.retOn[key0] : entry.retOff[key0];
+          if (gp !== -1) lassoOk = this._buildAndCheckLasso(entry, ci, endD, endIsOn, gp);
+        }
+        if (!lassoOk) return false;
+      } else {
+        // No NORMAL parents — use GROUP parent for lasso check
+        const gp = endIsOn ? entry.retOn[key0] : entry.retOff[key0];
+        if (gp === -1) return false;
+        if (!this._buildAndCheckLasso(entry, ci, endD, endIsOn, gp)) return false;
+      }
+    } else {
+      const lassoParent = endIsOn ? entry.retOn[key0] : entry.retOff[key0];
+      if (lassoParent === -1) return false;
+      if (!this._buildAndCheckLasso(entry, ci, endD, endIsOn, lassoParent)) return false;
+    }
 
-    // Then verify the chain actually uses a group-triggered step
+    // Then verify the chain actually uses a group-triggered step (using regular ret)
     let curCell = ci, curD = endD, curIsOn = endIsOn;
     for (let steps = 0; steps < 200; steps++) {
       const key = curCell * 10 + curD;
@@ -1769,6 +1858,19 @@ export class TablingSolver extends AbstractSolver {
     const s = this.sudoku;
     const isOnTables = tables === this._onTable;
 
+    // Helper: check GROUP filter + compute dist for a conclusion entry.
+    // Returns the dist to use, or 0 if the entry should be skipped.
+    const gdnlDist = (entry: TableEntry, key: number, isOn: boolean): number => {
+      const gf = isOn ? entry.groupFiredOn[key] : entry.groupFiredOff[key];
+      if (!gf) return isOn ? entry.minDistOn[key] : entry.minDistOff[key];
+      const parents = isOn ? entry.allNormalParentsOn.get(key) : entry.allNormalParentsOff.get(key);
+      if ((parents?.length ?? 0) > 0) {
+        const nd = isOn ? entry.normalDistOn[key] : entry.normalDistOff[key];
+        return nd || (isOn ? entry.minDistOn[key] : entry.minDistOff[key]);
+      }
+      return isOn ? entry.minDistOn[key] : entry.minDistOff[key];
+    };
+
     for (let ti = 0; ti < TABLE_SIZE; ti++) {
       const entry = tables[ti];
       if (!entry.populated) continue;
@@ -1780,24 +1882,27 @@ export class TablingSolver extends AbstractSolver {
         // ON premise: firstLinkStrong = false (ON table initial entries are always WEAK/OFF)
 
         // Java Case 1: offSets[d].has(ci), same cand, both weak → eliminate d
-        if (entry.offSets[d].has(ci)) {
-          const dist = entry.minDistOff[ci * 10 + d];
-          const usesGroup = grouped ? this._chainUsesGroupNode(entry, ci, d, false) : this._chainIsValid(entry, ci, d, false);
-          if (dist > 2 && usesGroup) {
-            out.push({ step: _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]), dist });
+        {
+          const key = ci * 10 + d;
+          const dist = entry.offSets[d].has(ci) ? gdnlDist(entry, key, false) : 0;
+          if (dist > 2) {
+            const usesGroup = grouped ? this._chainUsesGroupNode(entry, ci, d, false) : this._chainIsValid(entry, ci, d, false);
+            if (usesGroup) {
+              out.push({ step: _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]), dist });
+            }
           }
         }
 
         // Java Case 3: onSets[d2≠d].has(ci), mixed polarity (weak start, strong end)
         // → eliminate d (startCandidate, since firstLink is weak)
-        {
-          for (let d2 = 1; d2 <= 9; d2++) {
-            if (d2 !== d && entry.onSets[d2].has(ci) && s.isCandidate(ci, d)) {
-              const dist = entry.minDistOn[ci * 10 + d2];
-              const usesGroup2 = grouped ? this._chainUsesGroupNode(entry, ci, d2, true) : this._chainIsValid(entry, ci, d2, true);
-              if (dist > 2 && usesGroup2) {
-                out.push({ step: _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]), dist });
-              }
+        for (let d2 = 1; d2 <= 9; d2++) {
+          if (d2 === d || !entry.onSets[d2].has(ci) || !s.isCandidate(ci, d)) continue;
+          const key = ci * 10 + d2;
+          const dist = gdnlDist(entry, key, true);
+          if (dist > 2) {
+            const usesGroup2 = grouped ? this._chainUsesGroupNode(entry, ci, d2, true) : this._chainIsValid(entry, ci, d2, true);
+            if (usesGroup2) {
+              out.push({ step: _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d as Digit }]), dist });
             }
           }
         }
@@ -1807,10 +1912,11 @@ export class TablingSolver extends AbstractSolver {
         // CNL-A: offSets[d2≠d].has(ci), both weak, different cand, bivalue cell
         // Java: (!firstLinkStrong && !lastLinkStrong && getAnzCandidates(ci)==2 && startCand!=endCand)
         for (let d2 = 1; d2 <= 9; d2++) {
-          if (d2 !== d && entry.offSets[d2].has(ci) && s.isCandidate(ci, d2)
-              && s.getCandidates(ci).length === 2) {
-            const dist = entry.minDistOff[ci * 10 + d2];
-            if (dist > 2 && (grouped ? this._chainUsesGroupNode(entry, ci, d2, false) : this._chainIsValid(entry, ci, d2, false))) {
+          if (d2 === d || !entry.offSets[d2].has(ci) || !s.isCandidate(ci, d2)) continue;
+          const key = ci * 10 + d2;
+          const dist = gdnlDist(entry, key, false);
+          if (dist > 2 && s.getCandidates(ci).length === 2) {
+            if (grouped ? this._chainUsesGroupNode(entry, ci, d2, false) : this._chainIsValid(entry, ci, d2, false)) {
               const chain = this._reconstructChain(entry, ci, d2, false, ci, d);
               if (chain) {
                 const dels = this._cnlEliminations(chain, ci, d, d2, false, false);
@@ -1824,14 +1930,17 @@ export class TablingSolver extends AbstractSolver {
 
         // CNL-B: onSets[d].has(ci), mixed polarity (weak start, strong end), same cand
         // Java: (firstLinkStrong != lastLinkStrong && startCand == endCand) → firstStrong=false, lastStrong=true
-        if (entry.onSets[d].has(ci)) {
-          const dist = entry.minDistOn[ci * 10 + d];
-          if (dist > 2 && (grouped ? this._chainUsesGroupNode(entry, ci, d, true) : this._chainIsValid(entry, ci, d, true))) {
-            const chain = this._reconstructChain(entry, ci, d, true, ci, d);
-            if (chain) {
-              const dels = this._cnlEliminations(chain, ci, d, d, false, true);
-              if (dels.length > 0) {
-                out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+        {
+          const key = ci * 10 + d;
+          const dist = entry.onSets[d].has(ci) ? gdnlDist(entry, key, true) : 0;
+          if (dist > 2) {
+            if (grouped ? this._chainUsesGroupNode(entry, ci, d, true) : this._chainIsValid(entry, ci, d, true)) {
+              const chain = this._reconstructChain(entry, ci, d, true, ci, d);
+              if (chain) {
+                const dels = this._cnlEliminations(chain, ci, d, d, false, true);
+                if (dels.length > 0) {
+                  out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                }
               }
             }
           }
@@ -1841,32 +1950,35 @@ export class TablingSolver extends AbstractSolver {
 
         // Java Case 2: onSets[d].has(ci), same cand, both strong
         // → eliminate ALL candidates except d from ci
-        if (entry.onSets[d].has(ci)) {
-          const dist = entry.minDistOn[ci * 10 + d];
-          const isValid = grouped ? this._chainUsesGroupNode(entry, ci, d, true) : this._chainIsValid(entry, ci, d, true);
-          if (dist > 2 && isValid) {
-            const dels: Candidate[] = [];
-            for (let d2 = 1; d2 <= 9; d2++) {
-              if (d2 !== d && s.isCandidate(ci, d2)) {
-                dels.push({ index: ci, value: d2 as Digit });
+        {
+          const key = ci * 10 + d;
+          const dist = entry.onSets[d].has(ci) ? gdnlDist(entry, key, true) : 0;
+          if (dist > 2) {
+            const isValid = grouped ? this._chainUsesGroupNode(entry, ci, d, true) : this._chainIsValid(entry, ci, d, true);
+            if (isValid) {
+              const dels: Candidate[] = [];
+              for (let d2 = 1; d2 <= 9; d2++) {
+                if (d2 !== d && s.isCandidate(ci, d2)) {
+                  dels.push({ index: ci, value: d2 as Digit });
+                }
               }
-            }
-            if (dels.length > 0) {
-              out.push({ step: _step(SolutionType.DISCONTINUOUS_NICE_LOOP, dels), dist });
+              if (dels.length > 0) {
+                out.push({ step: _step(SolutionType.DISCONTINUOUS_NICE_LOOP, dels), dist });
+              }
             }
           }
         }
 
         // Java Case 3: offSets[d2≠d].has(ci), mixed polarity (strong start, weak end)
         // → eliminate d2 (endCandidate, since lastLink is weak)
-        {
-          for (let d2 = 1; d2 <= 9; d2++) {
-            if (d2 !== d && entry.offSets[d2].has(ci) && s.isCandidate(ci, d2)) {
-              const dist = entry.minDistOff[ci * 10 + d2];
-              const usesGroup3 = grouped ? this._chainUsesGroupNode(entry, ci, d2, false) : this._chainIsValid(entry, ci, d2, false);
-              if (dist > 2 && usesGroup3) {
-                out.push({ step: _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d2 as Digit }]), dist });
-              }
+        for (let d2 = 1; d2 <= 9; d2++) {
+          if (d2 === d || !entry.offSets[d2].has(ci) || !s.isCandidate(ci, d2)) continue;
+          const key = ci * 10 + d2;
+          const dist = gdnlDist(entry, key, false);
+          if (dist > 2) {
+            const usesGroup3 = grouped ? this._chainUsesGroupNode(entry, ci, d2, false) : this._chainIsValid(entry, ci, d2, false);
+            if (usesGroup3) {
+              out.push({ step: _step(SolutionType.DISCONTINUOUS_NICE_LOOP, [{ index: ci, value: d2 as Digit }]), dist });
             }
           }
         }
@@ -1875,14 +1987,17 @@ export class TablingSolver extends AbstractSolver {
 
         // CNL-C: offSets[d].has(ci), mixed polarity (strong start, weak end), same cand
         // Java: (firstLinkStrong != lastLinkStrong && startCand == endCand) → firstStrong=true, lastStrong=false
-        if (entry.offSets[d].has(ci)) {
-          const dist = entry.minDistOff[ci * 10 + d];
-          if (dist > 2 && (grouped ? this._chainUsesGroupNode(entry, ci, d, false) : this._chainIsValid(entry, ci, d, false))) {
-            const chain = this._reconstructChain(entry, ci, d, false, ci, d);
-            if (chain) {
-              const dels = this._cnlEliminations(chain, ci, d, d, true, false);
-              if (dels.length > 0) {
-                out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+        {
+          const key = ci * 10 + d;
+          const dist = entry.offSets[d].has(ci) ? gdnlDist(entry, key, false) : 0;
+          if (dist > 2) {
+            if (grouped ? this._chainUsesGroupNode(entry, ci, d, false) : this._chainIsValid(entry, ci, d, false)) {
+              const chain = this._reconstructChain(entry, ci, d, false, ci, d);
+              if (chain) {
+                const dels = this._cnlEliminations(chain, ci, d, d, true, false);
+                if (dels.length > 0) {
+                  out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                }
               }
             }
           }
@@ -1891,9 +2006,11 @@ export class TablingSolver extends AbstractSolver {
         // CNL-D: onSets[d2≠d].has(ci), both strong, different cand
         // Java: (firstLinkStrong && lastLinkStrong && startCand != endCand)
         for (let d2 = 1; d2 <= 9; d2++) {
-          if (d2 !== d && entry.onSets[d2].has(ci)) {
-            const dist = entry.minDistOn[ci * 10 + d2];
-            if (dist > 2 && (grouped ? this._chainUsesGroupNode(entry, ci, d2, true) : this._chainIsValid(entry, ci, d2, true))) {
+          if (d2 === d || !entry.onSets[d2].has(ci)) continue;
+          const key = ci * 10 + d2;
+          const dist = gdnlDist(entry, key, true);
+          if (dist > 2) {
+            if (grouped ? this._chainUsesGroupNode(entry, ci, d2, true) : this._chainIsValid(entry, ci, d2, true)) {
               const chain = this._reconstructChain(entry, ci, d2, true, ci, d);
               if (chain) {
                 const dels = this._cnlEliminations(chain, ci, d, d2, true, true);
