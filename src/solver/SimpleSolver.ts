@@ -54,6 +54,9 @@ const SUBSET_HOUSE_ORDER = [
    9, 10, 11, 12, 13, 14, 15, 16, 17,  // cols
 ];
 
+// Java locked subset search only scans blocks (findNakedXleInEntity(BLOCKS, ...)).
+const LOCKED_SUBSET_HOUSE_ORDER = [18, 19, 20, 21, 22, 23, 24, 25, 26];
+
 // ---------------------------------------------------------------------------
 // SimpleSolver — Full House, Naked/Hidden Single, Locked Candidates, Subsets.
 // Mirrors solver/SimpleSolver.java.
@@ -236,7 +239,8 @@ export class SimpleSolver extends AbstractSolver {
     };
     const HOUSES = Sudoku2.HOUSES;
 
-    for (const hIdx of SUBSET_HOUSE_ORDER) {
+    const houseOrder = locked ? LOCKED_SUBSET_HOUSE_ORDER : SUBSET_HOUSE_ORDER;
+    for (const hIdx of houseOrder) {
       const house   = HOUSES[hIdx];
       const isBlock = hIdx >= 18;
 
@@ -257,69 +261,49 @@ export class SimpleSolver extends AbstractSolver {
 
         const comboSet = new Set(combo);
 
-        // Determine secondary house
-        const r0      = Sudoku2.row(combo[0]);
-        const c0      = Sudoku2.col(combo[0]);
-        const b0      = Sudoku2.box(combo[0]);
-        const sameRow = combo.every(i => Sudoku2.row(i) === r0);
-        const sameCol = combo.every(i => Sudoku2.col(i) === c0);
-        const sameBox = combo.every(i => Sudoku2.box(i) === b0);
-
-        let secondaryIdx = -1;
-        if (isBlock) {
-          if (sameRow) secondaryIdx = r0;
-          else if (sameCol) secondaryIdx = 9 + c0;
-        } else {
-          if (sameBox) secondaryIdx = 18 + b0;
-        }
-
-        // Collect deletions, mirroring Java createSubsetStep constraint iteration order:
-        // Java always iterates row (0), col (1), box (2) constraints in that order.
-        // When the primary house is a block, secondary (row/col) deletions come FIRST.
-        // When the primary house is a row/col, primary deletions come FIRST.
-        const primaryDelList: Candidate[]   = [];
-        const secondaryDelList: Candidate[] = [];
-        let primaryDels   = false;
-        let secondaryDels = false;
-
-        for (const idx of house) {
-          if (comboSet.has(idx) || this.sudoku.values[idx] !== 0) continue;
-          for (let d = 1; d <= 9; d++) {
-            if ((combined & (1 << d)) && this.sudoku.isCandidate(idx, d)) {
-              primaryDelList.push({ index: idx, value: d as Digit });
-              primaryDels = true;
+        // Mirror Java createSubsetStep(): operate on common row/col/box constraints
+        // in fixed row->col->box order, collecting deletions directly from units.
+        const sameConstraint = [true, true, true];
+        const constraint = [...Sudoku2.CONSTRAINTS[combo[0]]]; // row, col, box
+        for (let i = 1; i < combo.length; i++) {
+          for (let j = 0; j < 3; j++) {
+            if (sameConstraint[j] && constraint[j] !== Sudoku2.CONSTRAINTS[combo[i]][j]) {
+              sameConstraint[j] = false;
             }
           }
         }
 
-        // Collect deletions from secondary house (not already in primary)
-        if (secondaryIdx >= 0) {
-          for (const idx of HOUSES[secondaryIdx]) {
+        const toDelete: Candidate[] = [];
+        const foundConstraint = [false, false, false];
+        let foundConstraintCount = 0;
+
+        for (let cType = 0; cType < 3; cType++) {
+          if (!sameConstraint[cType]) continue;
+          const unitCells = HOUSES[constraint[cType]];
+          for (const idx of unitCells) {
             if (comboSet.has(idx) || this.sudoku.values[idx] !== 0) continue;
-            if (house.includes(idx)) continue; // already processed in primary
             for (let d = 1; d <= 9; d++) {
               if ((combined & (1 << d)) && this.sudoku.isCandidate(idx, d)) {
-                secondaryDelList.push({ index: idx, value: d as Digit });
-                secondaryDels = true;
+                toDelete.push({ index: idx, value: d as Digit });
+                if (!foundConstraint[cType]
+                    && (cType === 2 || Sudoku2.CONSTRAINTS[idx][2] !== constraint[2])) {
+                  foundConstraint[cType] = true;
+                  foundConstraintCount++;
+                }
               }
             }
           }
         }
 
-        if (primaryDelList.length === 0 && secondaryDelList.length === 0) continue;
+        if (toDelete.length === 0) continue;
 
-        // LOCKED subset: deletions in BOTH primary and secondary constraint, size < 4.
-        // Mirrors Java createSubsetStep isLocked logic.
-        const isLocked = n < 4 && secondaryIdx >= 0 && primaryDels && secondaryDels;
-        if (isLocked !== locked) continue;
+        const isLocked = n < 4
+          && foundConstraintCount > 1
+          && (sameConstraint[2] && sameConstraint[0] || sameConstraint[2] && sameConstraint[1]);
+        if (locked && !isLocked) continue;
+        if (!locked && isLocked) continue;
 
-        // Java iterates constraints row→col→box, so secondary (row/col) comes before
-        // primary (box) when the pair is found in a block.
-        const toDelete: Candidate[] = isBlock
-          ? [...secondaryDelList, ...primaryDelList]
-          : [...primaryDelList, ...secondaryDelList];
-
-        const stepType = locked ? lockedTypeMap[n] : typeMap[n];
+        const stepType = isLocked ? lockedTypeMap[n] : typeMap[n];
         return { type: stepType, placements: [], candidatesToDelete: toDelete };
       }
     }

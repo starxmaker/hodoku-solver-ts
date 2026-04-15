@@ -30,7 +30,7 @@ import { AbstractSolver } from './AbstractSolver';
 export class UniquenessSolver extends AbstractSolver {
   override getStep(type: typeof SolutionType[keyof typeof SolutionType]): SolutionStep | null {
     switch (type) {
-      case SolutionType.UNIQUENESS_1:          return this._findUR1();
+      case SolutionType.UNIQUENESS_1:
       case SolutionType.UNIQUENESS_2:
       case SolutionType.UNIQUENESS_3:
       case SolutionType.UNIQUENESS_4:
@@ -450,54 +450,70 @@ export class UniquenessSolver extends AbstractSolver {
     withExtra: number[],
     cornerSet: Set<number>,
   ): SolutionStep | null {
-    const n = withExtra.length; // always 2
+    return this._checkUR3Recursive(houseType, house, u3Cells, u3Cands, withExtra, 0, cornerSet);
+  }
 
-    for (let k = 1; k <= u3Cells.length; k++) {
-      for (const combo of _combinations(u3Cells, k)) {
-        let aktCands = u3Cands;
-        for (const i of combo) aktCands |= this.sudoku.candidates[i];
+  private _checkUR3Recursive(
+    houseType: number,          // 0=row, 1=col, 2=box
+    house:     readonly number[],
+    u3Cells:   number[],
+    candsIncluded: number,
+    indicesIncluded: number[],
+    startIndex: number,
+    cornerSet: Set<number>,
+  ): SolutionStep | null {
+    for (let i = startIndex; i < u3Cells.length; i++) {
+      const idx = u3Cells[i];
+      const aktCands = candsIncluded | this.sudoku.candidates[idx];
+      const aktIndices = [...indicesIncluded, idx];
 
-        const aktSize = n + k;
-        if (_popcount(aktCands) !== aktSize - 1) continue;
+      if (houseType !== 2 || !_sameRowOrCol(aktIndices)) {
+        if (_popcount(aktCands) === aktIndices.length - 1) {
+          const aktSet = new Set(aktIndices);
+          const toDelete: { index: number; value: Digit }[] = [];
 
-        // For a BOX house: skip if all aktIndices happen to be in the same
-        // row or column (that case is already handled by the row/col pass).
-        if (houseType === 2) {
-          const aktIndices = [...withExtra, ...combo];
-          if (_sameRowOrCol(aktIndices)) continue;
-        }
-
-        const aktSet = new Set([...withExtra, ...combo]);
-        const toDelete: { index: number; value: Digit }[] = [];
-
-        const elim = (h: readonly number[]) => {
-          for (const v of h) {
+          for (const v of house) {
             if (aktSet.has(v) || cornerSet.has(v)) continue;
             if (this.sudoku.values[v] !== 0) continue;
             for (let d = 1; d <= 9; d++) {
-              if ((aktCands & (1 << d)) && this.sudoku.isCandidate(v, d))
+              if ((aktCands & (1 << d)) && this.sudoku.isCandidate(v, d)) {
                 toDelete.push({ index: v, value: d as Digit });
+              }
             }
           }
-        };
 
-        elim(house);
+          if (houseType === 0 || houseType === 1) {
+            const block = _singleBlock(aktIndices);
+            if (block !== -1) {
+              const blockHouse = Sudoku2.HOUSES[18 + block];
+              for (const v of blockHouse) {
+                if (aktSet.has(v) || cornerSet.has(v)) continue;
+                if (this.sudoku.values[v] !== 0) continue;
+                for (let d = 1; d <= 9; d++) {
+                  if ((aktCands & (1 << d)) && this.sudoku.isCandidate(v, d)) {
+                    toDelete.push({ index: v, value: d as Digit });
+                  }
+                }
+              }
+            }
+          }
 
-        // For a row/col house, also eliminate from the box if all aktIndices
-        // are in the same box (locked subset extension).
-        if (houseType === 0 || houseType === 1) {
-          const aktIndices = [...withExtra, ...combo];
-          const boxSet = new Set(aktIndices.map(i => Sudoku2.box(i)));
-          if (boxSet.size === 1) {
-            elim(Sudoku2.HOUSES[18 + [...boxSet][0]]);
+          if (toDelete.length > 0) {
+            return { type: SolutionType.UNIQUENESS_3, placements: [], candidatesToDelete: toDelete };
           }
         }
-
-        const unique = _dedupCands(toDelete);
-        if (unique.length > 0) {
-          return { type: SolutionType.UNIQUENESS_3, placements: [], candidatesToDelete: unique };
-        }
       }
+
+      const recursive = this._checkUR3Recursive(
+        houseType,
+        house,
+        u3Cells,
+        aktCands,
+        aktIndices,
+        i + 1,
+        cornerSet,
+      );
+      if (recursive) return recursive;
     }
     return null;
   }
@@ -724,21 +740,11 @@ function _sameRowOrCol(cells: number[]): boolean {
   return cells.every(i => Sudoku2.row(i) === r0) || cells.every(i => Sudoku2.col(i) === c0);
 }
 
-function* _combinations(arr: number[], k: number, start = 0): Generator<number[]> {
-  if (k === 0) { yield []; return; }
-  for (let i = start; i <= arr.length - k; i++) {
-    for (const rest of _combinations(arr, k - 1, i + 1)) yield [arr[i], ...rest];
+function _singleBlock(cells: number[]): number {
+  if (cells.length === 0) return -1;
+  const b0 = Sudoku2.box(cells[0]);
+  for (let i = 1; i < cells.length; i++) {
+    if (Sudoku2.box(cells[i]) !== b0) return -1;
   }
-}
-
-function _dedupCands(
-  cands: { index: number; value: number }[],
-): { index: number; value: Digit }[] {
-  const seen = new Set<number>();
-  const result: { index: number; value: Digit }[] = [];
-  for (const c of cands) {
-    const key = c.index * 10 + c.value;
-    if (!seen.has(key)) { seen.add(key); result.push({ index: c.index, value: c.value as Digit }); }
-  }
-  return result;
+  return b0;
 }

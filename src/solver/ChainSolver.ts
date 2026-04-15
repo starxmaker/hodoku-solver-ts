@@ -112,6 +112,20 @@ export class ChainSolver extends AbstractSolver {
       if (chain.length >= 20) return; // Java RESTRICT_CHAIN_LENGTH
       if (nextIsStrong) {
         for (const next of (strongAdj.get(cell) ?? [])) {
+          // Java X-Chain search also accepts loops that close back to the start cell.
+          // Those can produce valid eliminations (intersection of start buddies with itself).
+          if (next === start && chain.length >= 3) {
+            const del = _commonBuddyElims(start, start, d, values, candidates, BUDDIES);
+            if (del.length) {
+              const key = _elimKey(del);
+              const existing = deletesMap.get(key);
+              const loopLen = chain.length + 1; // include the closing edge to start
+              if (!existing || loopLen < existing.chainLen) {
+                deletesMap.set(key, { del: [...del], chainLen: loopLen });
+              }
+            }
+            continue;
+          }
           if (visited.has(next)) continue;
           chain.push(next);
           visited.add(next);
