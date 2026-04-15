@@ -907,7 +907,7 @@ export class TablingSolver extends AbstractSolver {
     const groups = collectGroupNodes(this.sudoku);
     this._fillTables();
     this._expandTables(this._onTable, this._offTable, groups.length > 0 ? groups : undefined);
-    return this._checkForcingChains();
+    return this._checkForcingChains(true);
   }
 
   private _getForcingNet(): SolutionStep | null {
@@ -915,7 +915,7 @@ export class TablingSolver extends AbstractSolver {
     const groups = collectGroupNodes(this.sudoku);
     this._fillTablesForNet();
     this._expandTables(this._onTable, this._offTable, groups.length > 0 ? groups : undefined);
-    const step = this._checkForcingChains();
+    const step = this._checkForcingChains(false);
     if (!step) return null;
     if (step.type === SolutionType.FORCING_CHAIN_CONTRADICTION)
       return { ...step, type: SolutionType.FORCING_NET_CONTRADICTION };
@@ -1661,8 +1661,8 @@ export class TablingSolver extends AbstractSolver {
           : entry.groupNodeCellsOff.get(k);
         if (gCells) {
           backCells.push(gCells[0]);
-        backGroup.push(gCells);
-      }
+          backGroup.push(gCells);
+        }
       }
 
       const pc = (usePar / 20) | 0;
@@ -1672,8 +1672,10 @@ export class TablingSolver extends AbstractSolver {
       curD = ((usePar % 20) >> 1);
       curIsOn = (usePar & 1) === 1;
     }
-    backCells.push(premiseCell);
-    backGroup.push(undefined);
+    if (backCells[backCells.length - 1] !== premiseCell) {
+      backCells.push(premiseCell);
+      backGroup.push(undefined);
+    }
     // Reverse to get forward order
     backCells.reverse();
     backGroup.reverse();
@@ -1690,7 +1692,7 @@ export class TablingSolver extends AbstractSolver {
     for (let i = 0; i < backCells.length; i++) {
       const cell = backCells[i];
       if (lassoSet.has(cell)) return false;
-      if (lastCell !== -1 && lastCell !== cell) {
+      if (lastCell !== -1) {
         lassoSet.add(lastCell);
         if (lastGroup) {
           for (const gc of lastGroup) lassoSet.add(gc);
@@ -2152,7 +2154,7 @@ export class TablingSolver extends AbstractSolver {
 
   // ── checkForcingChains() ─────────────────────────────────────────────────
 
-  private _checkForcingChains(): SolutionStep | null {
+  private _checkForcingChains(includeAllChainsVerity: boolean): SolutionStep | null {
     const out: SolutionStep[] = [];
     // 1. Single-chain contradictions
     for (let ti = 0; ti < TABLE_SIZE; ti++) {
@@ -2169,10 +2171,12 @@ export class TablingSolver extends AbstractSolver {
     for (let ti = 0; ti < TABLE_SIZE; ti++) {
       this._collectTwoChains(this._onTable[ti], this._offTable[ti], out);
     }
-    // 3. All-candidates-in-cell verity
-    this._collectAllChainsForCells(out);
-    // 4. All-positions-in-house verity
-    this._collectAllChainsForHouses(out);
+    if (includeAllChainsVerity) {
+      // 3. All-candidates-in-cell verity
+      this._collectAllChainsForCells(out);
+      // 4. All-positions-in-house verity
+      this._collectAllChainsForHouses(out);
+    }
     if (out.length === 0) return null;
     out.sort(_compareForcingChainSteps);
     return out[0];
@@ -2254,15 +2258,28 @@ export class TablingSolver extends AbstractSolver {
   private _collectTwoChains(on: TableEntry, off: TableEntry, out: SolutionStep[]): void {
     if (!on.populated || !off.populated) return;
     const s = this.sudoku;
+    const premiseCell = (on.tableIndex / 10) | 0;
     for (let d = 1; d <= 9; d++) {
       for (const cell of on.onSets[d]) {
+        if (cell === premiseCell) continue;
         if (off.onSets[d].has(cell) && s.isCandidate(cell, d)) {
-          out.push(_step(SolutionType.FORCING_CHAIN_VERITY, [], [{ index: cell, value: d as Digit }]));
+          const key = cell * 10 + d;
+          const len = on.minDistOn[key] + off.minDistOn[key];
+          out.push(_withChainLen(
+            _step(SolutionType.FORCING_CHAIN_VERITY, [], [{ index: cell, value: d as Digit }]),
+            len,
+          ));
         }
       }
       for (const cell of on.offSets[d]) {
+        if (cell === premiseCell) continue;
         if (off.offSets[d].has(cell) && s.isCandidate(cell, d)) {
-          out.push(_step(SolutionType.FORCING_CHAIN_VERITY, [{ index: cell, value: d as Digit }]));
+          const key = cell * 10 + d;
+          const len = on.minDistOff[key] + off.minDistOff[key];
+          out.push(_withChainLen(
+            _step(SolutionType.FORCING_CHAIN_VERITY, [{ index: cell, value: d as Digit }]),
+            len,
+          ));
         }
       }
     }
@@ -2278,7 +2295,8 @@ export class TablingSolver extends AbstractSolver {
       if (cands.length < 2) continue;
       const entries = cands.map(d => this._onTable[ci * 10 + d]).filter(e => e.populated);
       if (entries.length < 2) continue;
-      _collectVerities(_intersect(entries), s, out);
+      const sourceKeys = new Set<number>(cands.map(d => ci * 10 + d));
+      _collectVerities(_intersect(entries), entries, s, out, sourceKeys);
     }
   }
 
@@ -2294,7 +2312,8 @@ export class TablingSolver extends AbstractSolver {
         if (positions.length < 2) continue;
         const entries = positions.map(c => this._onTable[c * 10 + d]).filter(e => e.populated);
         if (entries.length < 2) continue;
-        _collectVerities(_intersect(entries), s, out);
+        const sourceKeys = new Set<number>(positions.map(c => c * 10 + d));
+        _collectVerities(_intersect(entries), entries, s, out, sourceKeys);
       }
     }
   }
@@ -2331,17 +2350,35 @@ function _intersect(entries: TableEntry[]): { onSets: Set<number>[]; offSets: Se
 
 function _collectVerities(
   { onSets, offSets }: { onSets: Set<number>[]; offSets: Set<number>[] },
+  entries: TableEntry[],
   s: Sudoku2,
   out: SolutionStep[],
+  sourceKeys: Set<number>,
 ): void {
   for (let d = 1; d <= 9; d++) {
     for (const cell of onSets[d]) {
-      if (s.isCandidate(cell, d))
-        out.push(_step(SolutionType.FORCING_CHAIN_VERITY, [], [{ index: cell, value: d as Digit }]));
+      if (sourceKeys.has(cell * 10 + d)) continue;
+      if (s.isCandidate(cell, d)) {
+        const key = cell * 10 + d;
+        let len = 0;
+        for (const e of entries) len += e.minDistOn[key];
+        out.push(_withChainLen(
+          _step(SolutionType.FORCING_CHAIN_VERITY, [], [{ index: cell, value: d as Digit }]),
+          len,
+        ));
+      }
     }
     for (const cell of offSets[d]) {
-      if (s.isCandidate(cell, d))
-        out.push(_step(SolutionType.FORCING_CHAIN_VERITY, [{ index: cell, value: d as Digit }]));
+      if (sourceKeys.has(cell * 10 + d)) continue;
+      if (s.isCandidate(cell, d)) {
+        const key = cell * 10 + d;
+        let len = 0;
+        for (const e of entries) len += e.minDistOff[key];
+        out.push(_withChainLen(
+          _step(SolutionType.FORCING_CHAIN_VERITY, [{ index: cell, value: d as Digit }]),
+          len,
+        ));
+      }
     }
   }
 }
@@ -2362,23 +2399,49 @@ function _compareForcingChainSteps(a: SolutionStep, b: SolutionStep): number {
     // Both placements: more placements first
     const cnt = b.placements.length - a.placements.length;
     if (cnt !== 0) return cnt;
-    // Lower cell index sums first
-    const sumA = a.placements.reduce((s, p) => s + p.index, 0);
-    const sumB = b.placements.reduce((s, p) => s + p.index, 0);
-    return sumA - sumB;
+    const aIdx = [...a.placements].map(p => p.index).sort((x, y) => x - y);
+    const bIdx = [...b.placements].map(p => p.index).sort((x, y) => x - y);
+    const sameIdx =
+      aIdx.length === bIdx.length && aIdx.every((v, i) => v === bIdx[i]);
+    if (!sameIdx) {
+      const sumA = aIdx.reduce((s, v) => s + v, 0);
+      const sumB = bIdx.reduce((s, v) => s + v, 0);
+      if (sumA !== sumB) return sumA - sumB;
+      return 1; // Java comparator keeps order stable when sums match.
+    }
+    const lenCmp = _compareForcingChainLen(a, b);
+    if (lenCmp !== 0) return lenCmp;
+    return 0;
   }
   // Both eliminations: more eliminations first
   const cnt = b.candidatesToDelete.length - a.candidatesToDelete.length;
   if (cnt !== 0) return cnt;
-  // Lower candidate index/value pairs first
-  const minLen = Math.min(a.candidatesToDelete.length, b.candidatesToDelete.length);
-  for (let i = 0; i < minLen; i++) {
-    const d = a.candidatesToDelete[i].index - b.candidatesToDelete[i].index;
-    if (d !== 0) return d;
-    const v = a.candidatesToDelete[i].value - b.candidatesToDelete[i].value;
-    if (v !== 0) return v;
+  const ad = a.candidatesToDelete;
+  const bd = b.candidatesToDelete;
+  const equiv = a.type === b.type && _candidateSetsEqual(ad, bd);
+  if (!equiv) {
+    const minLen = Math.min(ad.length, bd.length);
+    for (let i = 0; i < minLen; i++) {
+      const cmp = (ad[i].index * 10 + ad[i].value) - (bd[i].index * 10 + bd[i].value);
+      if (cmp !== 0) return cmp;
+    }
+    if (ad.length !== bd.length) return ad.length - bd.length;
   }
+  const lenCmp = _compareForcingChainLen(a, b);
+  if (lenCmp !== 0) return lenCmp;
   return 0;
+}
+
+function _withChainLen(step: SolutionStep, len: number): SolutionStep {
+  (step as SolutionStep & { _chainLen?: number })._chainLen = len;
+  return step;
+}
+
+function _compareForcingChainLen(a: SolutionStep, b: SolutionStep): number {
+  const la = (a as SolutionStep & { _chainLen?: number })._chainLen;
+  const lb = (b as SolutionStep & { _chainLen?: number })._chainLen;
+  if (la === undefined || lb === undefined) return 0;
+  return la - lb;
 }
 
 function _step(
@@ -2478,11 +2541,11 @@ function _compareGroupedSteps(a: _StepCandidate, b: _StepCandidate): number {
 // Both helpers operate on mutable wVals/wCands snapshots; they record all
 // resulting placements (addSet) and eliminations (addDel) in the entry.
 //
-// BFS queue: cells to place as [cell, digit].  When a cell is placed, all
-// candidates d are removed from its buddies; if a buddy then has only one
-// candidate left it becomes a naked single.  After each round, all 27 houses
-// are scanned for hidden singles (digit that can go in only one cell).
+// Java net mode uses limited single-lookahead (Options.ANZ_TABLE_LOOK_AHEAD=4):
+// in each round it collects all current naked+hidden singles, then applies them.
+// Singles discovered while applying a round are deferred to the next round.
 // ---------------------------------------------------------------------------
+const NET_TABLE_LOOKAHEAD = 4;
 
 function _netCountBits(mask: number): number {
   let n = 0;
@@ -2501,7 +2564,7 @@ function _netApplyPlacement(
   cell: number, digit: number,
   wVals: Uint8Array, wCands: Uint16Array,
   entry: TableEntry,
-  queue: number[],
+  queue?: number[],
 ): void {
   if (wVals[cell] !== 0) return;      // already placed
   wVals[cell] = digit;
@@ -2519,17 +2582,32 @@ function _netApplyPlacement(
     if (wVals[peer] !== 0 || (wCands[peer] >> digit & 1) === 0) continue;
     wCands[peer] &= ~(1 << digit);
     entry.addDel(peer, digit);
-    if (_netCountBits(wCands[peer]) === 1) {
+    if (queue && _netCountBits(wCands[peer]) === 1) {
       queue.push(peer * 10 + _netLowestBit(wCands[peer]));
     }
   }
 }
 
-function _netScanHiddenSingles(
+function _netCollectSingles(
   wVals: Uint8Array, wCands: Uint16Array,
-  entry: TableEntry,
-  queue: number[],
-): void {
+): number[] {
+  const out: number[] = [];
+  const seen = new Set<number>();
+
+  // Naked singles.
+  for (let c = 0; c < 81; c++) {
+    if (wVals[c] !== 0) continue;
+    const mask = wCands[c];
+    if (_netCountBits(mask) === 1) {
+      const pack = c * 10 + _netLowestBit(mask);
+      if (!seen.has(pack)) {
+        seen.add(pack);
+        out.push(pack);
+      }
+    }
+  }
+
+  // Hidden singles.
   for (let h = 0; h < 27; h++) {
     const house = HOUSE_CELLS[h] as number[];
     for (let d = 1; d <= 9; d++) {
@@ -2538,10 +2616,16 @@ function _netScanHiddenSingles(
         if (wVals[c] === 0 && (wCands[c] >> d & 1) !== 0) { cnt++; pos = c; }
       }
       if (cnt === 1 && pos !== -1 && wVals[pos] === 0) {
-        queue.push(pos * 10 + d);
+        const pack = pos * 10 + d;
+        if (!seen.has(pack)) {
+          seen.add(pack);
+          out.push(pack);
+        }
       }
     }
   }
+
+  return out;
 }
 
 function _netPropagateOn(
@@ -2549,16 +2633,17 @@ function _netPropagateOn(
   wVals: Uint8Array, wCands: Uint16Array,
   entry: TableEntry,
 ): void {
-  const queue: number[] = [ci * 10 + d];
-  let qi = 0;
-  while (qi < queue.length) {
-    const pack = queue[qi++];
-    const cell  = (pack / 10) | 0;
-    const digit = pack % 10;
-    if (wVals[cell] !== 0) continue;
-    _netApplyPlacement(cell, digit, wVals, wCands, entry, queue);
-    // Hidden singles scan after each placement (bounded by grid size).
-    _netScanHiddenSingles(wVals, wCands, entry, queue);
+  _netApplyPlacement(ci, d, wVals, wCands, entry);
+
+  for (let i = 0; i < NET_TABLE_LOOKAHEAD; i++) {
+    const singles = _netCollectSingles(wVals, wCands);
+    if (singles.length === 0) break;
+    for (const pack of singles) {
+      const cell  = (pack / 10) | 0;
+      const digit = pack % 10;
+      if (wVals[cell] !== 0) continue;
+      _netApplyPlacement(cell, digit, wVals, wCands, entry);
+    }
   }
 }
 
@@ -2571,32 +2656,20 @@ function _netPropagateOff(
   wCands[ci] &= ~(1 << d);
   entry.addDel(ci, d);
 
-  const queue: number[] = [];
-
-  // Naked single in ci after removing d?
+  // Java: if OFF creates a naked single in the same cell, set it immediately.
   if (_netCountBits(wCands[ci]) === 1) {
-    queue.push(ci * 10 + _netLowestBit(wCands[ci]));
+    _netApplyPlacement(ci, _netLowestBit(wCands[ci]), wVals, wCands, entry);
   }
 
-  // Hidden single in the houses that contain ci.
-  for (const hIdx of CELL_HOUSES[ci]) {
-    for (let hd = 1; hd <= 9; hd++) {
-      let cnt = 0; let pos = -1;
-      for (const c of (HOUSE_CELLS[hIdx] as number[])) {
-        if (wVals[c] === 0 && (wCands[c] >> hd & 1) !== 0) { cnt++; pos = c; }
-      }
-      if (cnt === 1 && pos !== -1 && wVals[pos] === 0) queue.push(pos * 10 + hd);
+  for (let i = 0; i < NET_TABLE_LOOKAHEAD; i++) {
+    const singles = _netCollectSingles(wVals, wCands);
+    if (singles.length === 0) break;
+    for (const pack of singles) {
+      const cell  = (pack / 10) | 0;
+      const digit = pack % 10;
+      if (wVals[cell] !== 0) continue;
+      _netApplyPlacement(cell, digit, wVals, wCands, entry);
     }
-  }
-
-  let qi = 0;
-  while (qi < queue.length) {
-    const pack = queue[qi++];
-    const cell  = (pack / 10) | 0;
-    const digit = pack % 10;
-    if (wVals[cell] !== 0) continue;
-    _netApplyPlacement(cell, digit, wVals, wCands, entry, queue);
-    _netScanHiddenSingles(wVals, wCands, entry, queue);
   }
 }
 
