@@ -4,6 +4,20 @@ TypeScript port of [HoDoKu](https://sourceforge.net/projects/hodoku/)'s logical 
 
 Given an 81-character puzzle string it returns the difficulty score and band that HoDoKu's Java solver would produce.
 
+Please consider that it is far slower than the original Java version. Use this version only if you need JS support.
+
+
+## Current parity
+
+Take this numbers as reference only, not guaranteed results. If you find a disparity, please report.
+
+These numbers are generated using parity tool, which uses Java QQwing (generation) and original Hodoku (solving). Then the sudokus are solved using current library, and scores are compared. Percentage is based on the number of score matches on 1000 sudokus.
+
+- Simple: 100%
+- Easy: 100%
+- Intermediate: 99.9%
+- Expert: 99.00%
+
 ## Scope
 
 **Included:**
