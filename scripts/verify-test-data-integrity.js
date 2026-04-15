@@ -1,5 +1,5 @@
 import { runHodoku } from './util/original-evaluate-puzzle.js'
-import { parseCSV } from './util/load_csv_puzzles.js'
+import { parseCSV } from './util/csv-utils.js'
 
 const tests = parseCSV("./test/test_data.csv");
 const knownCases = parseCSV("./test/known_disparities.csv");

@@ -1,7 +1,7 @@
 import { generate, difficultyOptions } from './util/generate-puzzle.js'
 import { runHodoku } from './util/original-evaluate-puzzle.js'
 import { SudokuSolver } from "../dist/index.js";
-import { parseCSV } from './util/load_csv_puzzles.js'
+import { parseCSV, appendLineToCSV, removeLineFromCSV } from './util/csv-utils.js'
 
 const difficultyLevels = ["EASY", "MEDIUM", "HARD", "UNFAIR", "EXTREME"]
 
@@ -109,6 +109,7 @@ for (let i = 0; i < puzzles.length; i++) {
     const newResult = SudokuSolver.rate(puzzle)
     let difficultyMatch = originalResult.difficulty.toUpperCase() === newResult.difficulty.toUpperCase()
     let scoreMatch = originalResult.score === newResult.score
+    const line = `\"${puzzle}\",\"${originalResult.difficulty}\",\"${originalResult.score}\"`
     if (!difficultyMatch || !scoreMatch) {
         disparityMap[originalResult.difficulty.toUpperCase()].push({
             puzzle,
@@ -122,9 +123,7 @@ for (let i = 0; i < puzzles.length; i++) {
             }
         })
         if (saveDisparity && !knownIssuePuzzles.includes(puzzle)) {
-            const fs = await import('fs/promises')
-            const line = `\"${puzzle}\",\"${originalResult.difficulty}\",\"${originalResult.score}\"\n`
-            await fs.appendFile('./test/known_disparities.csv', line)
+            appendLineToCSV('./test/known_disparities.csv', line)
             console.log("New disparity found! Example added to known_disparities.csv")
         }
         if (breakOnDisparity) {
@@ -133,6 +132,8 @@ for (let i = 0; i < puzzles.length; i++) {
         }
     } else {
         if (knownIssuePuzzles.includes(puzzle)) {
+            removeLineFromCSV('./test/known_disparities.csv', line)
+            appendLineToCSV('./test/test_data.csv', line)
             console.log("Previously known disparity now matches for puzzle:", puzzle)
         }
     }

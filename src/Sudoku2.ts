@@ -256,6 +256,9 @@ export class Sudoku2 {
       const newFree = --this._free[constr][d];
       if (newFree === 1) {
         this._addHiddenSingle(constr, d);
+      } else if (newFree === 0) {
+        // Mirrors Java setCandidate(..., false): remove stale HS queue entry.
+        this._hsDelete(constr, d);
       }
     }
 
@@ -499,6 +502,9 @@ export class Sudoku2 {
         const newFree = --this._free[constr][d];
         if (newFree === 1) {
           this._addHiddenSingle(constr, d);
+        } else if (newFree === 0) {
+          // Mirrors Java setCandidate(..., false): remove stale HS queue entry.
+          this._hsDelete(constr, d);
         }
       }
 
@@ -536,6 +542,29 @@ export class Sudoku2 {
   private _hsAdd(idx: number, val: number): void {
     this._hsIdx[this._hsPut] = idx;
     this._hsVal[this._hsPut++] = val;
+  }
+
+  /**
+   * Delete first pending hidden-single entry for (constraint, digit), matching
+   * Java SudokuSinglesQueue.deleteHiddenSingle().
+   */
+  private _hsDelete(constr: number, value: number): void {
+    for (let i = this._hsGet; i < this._hsPut; i++) {
+      const idx = this._hsIdx[i];
+      const inConstr =
+        CONSTRAINTS[idx][0] === constr ||
+        CONSTRAINTS[idx][1] === constr ||
+        CONSTRAINTS[idx][2] === constr;
+      if (this._hsVal[i] === value && inConstr) {
+        for (let j = i + 1; j < this._hsPut; j++) {
+          this._hsIdx[j - 1] = this._hsIdx[j];
+          this._hsVal[j - 1] = this._hsVal[j];
+        }
+        this._hsPut--;
+        break;
+      }
+    }
+    if (this._hsGet >= this._hsPut) this._hsGet = this._hsPut = 0;
   }
 
   /**
@@ -581,12 +610,14 @@ export class Sudoku2 {
       const idx = this._hsIdx[qi];
       const val = this._hsVal[qi];
       if (this.values[idx] === 0) {
-        // Verify the hidden single is still valid in some constraint of idx.
+        // Mirrors Java SimpleSolver.findHiddenSingle():
+        // once the first unsolved queue entry is reached, stop scanning.
         for (const constr of CONSTRAINTS[idx]) {
           if (this._free[constr][val] === 1) {
             return { index: idx, value: val };
           }
         }
+        return null;
       }
       // Stale entry — skip and continue.
     }

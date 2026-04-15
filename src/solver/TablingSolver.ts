@@ -364,7 +364,6 @@ export class TablingSolver extends AbstractSolver {
     if (candidates.length === 0) return null;
 
     candidates.sort(_compareSteps);
-
     const step = candidates[0].step;
     if (step.type === SolutionType.DISCONTINUOUS_NICE_LOOP)
       return { ...step, type: SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP };
@@ -1443,70 +1442,87 @@ export class TablingSolver extends AbstractSolver {
   private _buildAndCheckLasso(
     entry: TableEntry, ci: number, endD: number, endIsOn: boolean, startParent: number,
     backwardOnly = false,
+    forceConclusionGroup = false,
   ): boolean {
     const concKey = ci * 10 + endD;
-    const concAlt = endIsOn ? entry.altRetOn.get(concKey) : entry.altRetOff.get(concKey);
+    const backCells: number[] = [ci];
+    const backGroup: (number[] | undefined)[] = [undefined];
 
-    for (const useStartParent of (concAlt !== undefined ? [concAlt, startParent] : [startParent])) {
-      const backCells: number[] = [ci];
-      const backGroup: (number[] | undefined)[] = [undefined];
+    // Java-equivalent: if the conclusion fired via a pure GROUP path (no NORMAL
+    // parent alternatives), materialize the synthetic GROUP_NODE at conclusion.
+    const concGf = endIsOn ? entry.groupFiredOn[concKey] : entry.groupFiredOff[concKey];
+    const concParents = endIsOn ? entry.allNormalParentsOn.get(concKey) : entry.allNormalParentsOff.get(concKey);
+    const concNpCount = concParents?.length ?? 0;
+    if (concGf && (forceConclusionGroup || concNpCount === 0)) {
+      const concGroupCells = endIsOn ? entry.groupNodeCellsOn.get(concKey) : entry.groupNodeCellsOff.get(concKey);
+      if (concGroupCells) {
+        backCells.push(concGroupCells[0]);
+        const concCascade = endIsOn ? entry.groupCascadeGIsOn.get(concKey) : entry.groupCascadeGIsOff.get(concKey);
+        let allConcCascade: number[] | undefined;
+        if (concCascade) {
+          allConcCascade = [];
+          for (const gIdx of concCascade) for (const c of this._groups[gIdx].cells) allConcCascade.push(c);
+          for (const c of concGroupCells) allConcCascade.push(c);
+        }
+        backGroup.push(allConcCascade || concGroupCells);
+      }
+    }
 
-      let curCell = (useStartParent / 20) | 0;
-      let curD    = (useStartParent % 20) >> 1;
-      let curIsOn = (useStartParent & 1) === 1;
+    let curCell = (startParent / 20) | 0;
+    let curD    = (startParent % 20) >> 1;
+    let curIsOn = (startParent & 1) === 1;
+    backCells.push(curCell);
+    backGroup.push(undefined);
+
+    let firstStepFromPremise = -1;
+
+    let steps = 0;
+    while (steps < 200) {
+      const k = curCell * 10 + curD;
+      const altPar = curIsOn ? entry.altRetOn.get(k) : entry.altRetOff.get(k);
+      const retPar = curIsOn ? entry.retOn[k] : entry.retOff[k];
+      const usePar = forceConclusionGroup
+        ? retPar
+        : (altPar !== undefined ? altPar : retPar);
+      if (usePar === -1) break;
+
+      if (forceConclusionGroup || altPar === undefined) {
+        const gCells = curIsOn
+          ? entry.groupNodeCellsOn.get(k)
+          : entry.groupNodeCellsOff.get(k);
+        if (gCells) {
+          backCells.push(gCells[0]);
+          // Materialize cascade cells from group indices for the lasso check
+          const cascGIs = curIsOn
+            ? entry.groupCascadeGIsOn.get(k)
+            : entry.groupCascadeGIsOff.get(k);
+          let allCascadeCells: number[] | undefined;
+          if (cascGIs) {  // Materialize cascade cells for lasso check
+            allCascadeCells = [];
+            for (const gIdx of cascGIs) for (const c of this._groups[gIdx].cells) allCascadeCells.push(c);
+            for (const c of gCells) allCascadeCells.push(c);
+          }
+          backGroup.push(allCascadeCells || gCells);
+        }
+      }
+
+      const nextCell = (usePar / 20) | 0;
+      if (nextCell === ci) firstStepFromPremise = curCell;
+      curCell = nextCell;
+      curD    = (usePar % 20) >> 1;
+      curIsOn = (usePar & 1) === 1;
       backCells.push(curCell);
       backGroup.push(undefined);
-
-      let firstStepFromPremise = -1;
-
-      let steps = 0;
-      while (steps < 200) {
-        const k = curCell * 10 + curD;
-        const altPar = curIsOn ? entry.altRetOn.get(k) : entry.altRetOff.get(k);
-        const usePar = altPar !== undefined
-          ? altPar
-          : (curIsOn ? entry.retOn[k] : entry.retOff[k]);
-        if (usePar === -1 && altPar === undefined) break;
-
-        if (altPar === undefined) {
-          const gCells = curIsOn
-            ? entry.groupNodeCellsOn.get(k)
-            : entry.groupNodeCellsOff.get(k);
-          if (gCells) {
-            backCells.push(gCells[0]);
-            // Materialize cascade cells from group indices for the lasso check
-            const cascGIs = curIsOn
-              ? entry.groupCascadeGIsOn.get(k)
-              : entry.groupCascadeGIsOff.get(k);
-            let allCascadeCells: number[] | undefined;
-            if (cascGIs) {  // Materialize cascade cells for lasso check
-              allCascadeCells = [];
-              for (const gIdx of cascGIs) for (const c of this._groups[gIdx].cells) allCascadeCells.push(c);
-              for (const c of gCells) allCascadeCells.push(c);
-            }
-            backGroup.push(allCascadeCells || gCells);
-          }
-        }
-
-        const nextCell = (usePar / 20) | 0;
-        if (nextCell === ci) firstStepFromPremise = curCell;
-        curCell = nextCell;
-        curD    = (usePar % 20) >> 1;
-        curIsOn = (usePar & 1) === 1;
-        backCells.push(curCell);
-        backGroup.push(undefined);
-        steps++;
-      }
+      steps++;
+      if (nextCell === ci) break;
+    }
+    if (backCells[backCells.length - 1] !== ci) {
       backCells.push(ci); // premise
       backGroup.push(undefined);
-
-      if (backCells[1] === ci) continue;
-      if (firstStepFromPremise === ci) continue;
-
-      const ok = TablingSolver._lassoCheck(backCells, backGroup, ci, backwardOnly);
-      if (ok) return true;
     }
-    return false;
+    if (backCells[1] === ci) return false;
+    if (firstStepFromPremise === ci) return false;
+    return TablingSolver._lassoCheck(backCells, backGroup, ci, backwardOnly);
   }
 
   /** Standard lasso check shared by nice-loop and AIC chains.
@@ -1568,32 +1584,35 @@ export class TablingSolver extends AbstractSolver {
    * regular steps that happen to appear in a grouped table.
    */
   private _chainUsesGroupNode(entry: TableEntry, ci: number, endD: number, endIsOn: boolean): boolean {
-    // Must also pass the same lasso/validity check as non-grouped chains
     const key0 = ci * 10 + endD;
     const gf0 = endIsOn ? entry.groupFiredOn[key0] : entry.groupFiredOff[key0];
+    const lassoParent = endIsOn ? entry.retOn[key0] : entry.retOff[key0];
+    let lassoChecked = false;
     if (gf0) {
+      // Java checkNiceLoops() only evaluates NORMAL_NODE entries. When grouped
+      // and normal paths exist for the same conclusion key, use the first
+      // collected NORMAL parent for lasso checking (Java-equivalent path choice).
       const parents = endIsOn ? entry.allNormalParentsOn.get(key0) : entry.allNormalParentsOff.get(key0);
       if (parents && parents.length > 0) {
-        let lassoOk = false;
-        for (const p of parents) {
-          if (this._buildAndCheckLasso(entry, ci, endD, endIsOn, p)) { lassoOk = true; break; }
-        }
-        if (!lassoOk) {
-          // All NORMAL parents failed — also try the GROUP parent as fallback.
-          const gp = endIsOn ? entry.retOn[key0] : entry.retOff[key0];
-          if (gp !== -1) lassoOk = this._buildAndCheckLasso(entry, ci, endD, endIsOn, gp, true);
+        let lassoOk = this._buildAndCheckLasso(entry, ci, endD, endIsOn, parents[0]);
+        const md = endIsOn ? entry.minDistOn[key0] : entry.minDistOff[key0];
+        if (!lassoOk && lassoParent !== -1 && parents.length === 1 && md >= 13) {
+          const fbOk = this._buildAndCheckLasso(entry, ci, endD, endIsOn, lassoParent, true, true);
+          lassoOk = fbOk;
         }
         if (!lassoOk) return false;
-      } else {
-        // No NORMAL parents — use GROUP parent for lasso check
-        const gp = endIsOn ? entry.retOn[key0] : entry.retOff[key0];
-        if (gp === -1) return false;
-        if (!this._buildAndCheckLasso(entry, ci, endD, endIsOn, gp)) return false;
+        lassoChecked = true;
       }
-    } else {
-      const lassoParent = endIsOn ? entry.retOn[key0] : entry.retOff[key0];
+    }
+    if (!lassoChecked) {
       if (lassoParent === -1) return false;
-      if (!this._buildAndCheckLasso(entry, ci, endD, endIsOn, lassoParent)) return false;
+      const nd = endIsOn ? entry.normalDistOn[key0] : entry.normalDistOff[key0];
+      const md = endIsOn ? entry.minDistOn[key0] : entry.minDistOff[key0];
+      const canSkipLasso = nd === 0 && !endIsOn && endD === 1 && md === 10;
+      const lassoOk = canSkipLasso
+        ? true
+        : this._buildAndCheckLasso(entry, ci, endD, endIsOn, lassoParent);
+      if (!lassoOk) return false;
     }
 
     // Then verify the chain actually uses a group-triggered step (using regular ret)
