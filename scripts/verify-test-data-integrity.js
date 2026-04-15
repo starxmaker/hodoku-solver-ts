@@ -1,45 +1,40 @@
 import { runHodoku } from './util/original-evaluate-puzzle.js'
-import * as fs from "fs";
-import * as path from "path";
+import { parseCSV } from './util/load_csv_puzzles.js'
 
-function parseCSV() {
-  const csv = fs.readFileSync("./test/test_data.csv", "utf8");
-  const lines = csv.trim().split(/\r?\n/).slice(1); // skip header
-  return lines.map(line => {
-    const parts = line.match(/"([^"]*)"/g).map(s => s.slice(1, -1));
-    return {
-      puzzle:     parts[0],
-      difficulty: parts[1].toUpperCase(),
-      score:      parseInt(parts[2], 10),
-    };
-  });
-}
-
-const testData = parseCSV();
+const tests = parseCSV("./test/test_data.csv");
+const knownCases = parseCSV("./test/known_disparities.csv");
+const testData = [...tests, ...knownCases]
+const puzzles = testData.map(testCase => testCase.puzzle)
+const solvedPuzzles = await runHodoku(puzzles)
 
 console.log("Starting at " + new Date().toISOString())
 
 let difficultyMatch = true
 let scoreMatch = true
+let disparities = []
 
-
-for (let iteration = 0; iteration < testData.length; iteration++) {
-    let testCase = testData[iteration]
-    let puzzle = testCase.puzzle
-    console.log("\nIteration: " + (iteration + 1))
-    console.log("Puzzle:", puzzle)
-    
-    const originalResult = await runHodoku(puzzle)
-    console.log("Original Estimation: " + originalResult.difficulty.toUpperCase() + " (" + originalResult.score + ")")
-    console.log("Test Case Estimation: " + testCase.difficulty.toUpperCase() + " (" + testCase.score + ")")
+for (let iteration = 0; iteration < solvedPuzzles.length; iteration++) {
+    const testCase = testData[iteration]
+    const originalResult = solvedPuzzles[iteration]
     difficultyMatch = originalResult.difficulty.toUpperCase() === testCase.difficulty.toUpperCase()
     scoreMatch = originalResult.score === testCase.score
-    console.log("Match:")
-    console.log("  Difficulty: " + (difficultyMatch ? "Yes" : "No"))
-    console.log("  Score: " + (scoreMatch ? "Yes" : "No"))
     if ((!difficultyMatch || !scoreMatch)) {
         console.log("Disparity found!")
-        break
+        disparities.push({
+            puzzle: testCase.puzzle,
+            original: originalResult,
+            testCase: testCase
+        });
     }
-    
+    process.stdout.write(`Verified ${iteration + 1}/${puzzles.length} puzzles with the old library...\r`);
+}
+
+for (const disparity of disparities) {
+    console.log("\nDisparity Found:")
+    console.log("Puzzle:", disparity.puzzle)
+    console.log("Original Estimation: " + disparity.original.difficulty.toUpperCase() + " (" + disparity.original.score + ")")
+    console.log("Test Case Estimation: " + disparity.testCase.difficulty.toUpperCase() + " (" + disparity.testCase.score + ")")
+}
+if (disparities.length === 0) {
+    console.log("No disparities found! All test cases are consistent with the original library's results.")
 }

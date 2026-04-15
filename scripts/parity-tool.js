@@ -1,7 +1,9 @@
 import { generate, difficultyOptions } from './util/generate-puzzle.js'
 import { runHodoku } from './util/original-evaluate-puzzle.js'
 import { SudokuSolver } from "../dist/index.js";
+import { parseCSV } from './util/load_csv_puzzles.js'
 
+const difficultyLevels = ["EASY", "MEDIUM", "HARD", "UNFAIR", "EXTREME"]
 
 const parseFlag = (flag, defaultValue = null) => {
     const arg = process.argv.find(arg => arg.startsWith(`--${flag}=`));
@@ -34,47 +36,72 @@ const parsePositional = (index, defaultValue = null) => {
 
 
 // positional arguments
-const given = parsePositional(0, null);
+let given = parsePositional(0, null);
 
 // flags
-const difficulty = parseFlag('difficulty') ? parseFlag('difficulty').toUpperCase() : "EXTREME";
-if (!given && !difficultyOptions.includes(difficulty)) {
+const difficulty = parseFlag('difficulty') ? parseFlag('difficulty').toUpperCase() : null;
+if (difficulty && !difficultyOptions.includes(difficulty)) {
     console.error("Invalid difficulty level. Valid options are: " + difficultyOptions.join(", "))
     process.exit(1)
 }
 
 const saveDisparity = parseBooleanFlag('saveDisparity', !given) ;
 
-const limit = parseNumericFlag('limit', 1000)
+let generateValue = parseNumericFlag('generate', given ? 0 : 5000)
 
-const breakOnDisparity = parseBooleanFlag('breakOnDisparity')
+let breakOnDisparity = parseBooleanFlag('breakOnDisparity')
 
-if (!limit && !breakOnDisparity) {
-    console.error("You must specify either a limit or enable breakOnDisparity.");
-    process.exit(1);
+let includeKnownCases = parseBooleanFlag('includeKnownCases', !given)
+
+let hideReport = parseBooleanFlag('hideReport', !!given)
+
+// profiles
+let profile = parseFlag('profile', 'default')
+let knownCasesOnly = profile === 'knownCasesOnly'
+
+if (knownCasesOnly) {
+    console.log("Running in known cases only mode. Only puzzles from known_disparities.csv will be tested.")
+    generateValue = 0
+    hideReport = true
+    breakOnDisparity = false
+    includeKnownCases = true
+    given = null
 }
 
 console.log("Configuration:")
-console.log("  Input Puzzle:", given ? "Given" : "Generated")
+console.log("  Profile:", profile)
+console.log("  Given puzzle:", given ? "Yes" : "No")
 console.log("  Difficulty Filter:", difficulty || "None")
 console.log("  Save Disparity:", saveDisparity)
-console.log("  Limit:", limit || "None")
+console.log("  Generate:", generateValue || "None")
 console.log("  Break on Disparity:", breakOnDisparity)
-
+console.log("  Include Known Cases:", includeKnownCases)
+console.log("  Hide Report:", hideReport)
 
 console.log("Starting at " + new Date().toISOString())
+const knownIssues = parseCSV("./test/known_disparities.csv");
+const knownIssuePuzzles = knownIssues.map(issue => issue.puzzle)
 
 let puzzles = []
 if (given) {
     puzzles.push(given.trim())
-} else {
-    const quantity = limit || 1000
-    console.log(`Generating ${quantity} puzzles with difficulty ${difficulty}...`)
-    puzzles = await generate(quantity, difficulty)
 }
+if (generateValue) {
+    console.log(`Generating ${generateValue} puzzles...`)
+    const generatedPuzzles = await generate(generateValue, difficulty)
+    puzzles.push(...generatedPuzzles)
+}
+if (includeKnownCases) {
+    console.log(`Including ${knownIssuePuzzles.length} known issue puzzles...`)
+    puzzles.push(...knownIssuePuzzles)
+}
+
 const originalSolvedPuzzles = await runHodoku(puzzles)
 
-const disparities = []
+const disparityMap = difficultyLevels.reduce((map, difficulty) => {
+    map[difficulty] = []
+    return map
+}, {})
 
 for (let i = 0; i < puzzles.length; i++) {
     let puzzle = puzzles[i]
@@ -83,7 +110,7 @@ for (let i = 0; i < puzzles.length; i++) {
     let difficultyMatch = originalResult.difficulty.toUpperCase() === newResult.difficulty.toUpperCase()
     let scoreMatch = originalResult.score === newResult.score
     if (!difficultyMatch || !scoreMatch) {
-        disparities.push({
+        disparityMap[originalResult.difficulty.toUpperCase()].push({
             puzzle,
             original: {
                 difficulty: originalResult.difficulty,
@@ -94,40 +121,80 @@ for (let i = 0; i < puzzles.length; i++) {
                 score: newResult.score
             }
         })
-        if (saveDisparity) {
+        if (saveDisparity && !knownIssuePuzzles.includes(puzzle)) {
             const fs = await import('fs/promises')
             const line = `\"${puzzle}\",\"${originalResult.difficulty}\",\"${originalResult.score}\"\n`
-            await fs.appendFile('./test/test_data.csv', line)
-            console.log("Disparity found! Example added to test_data.csv")
+            await fs.appendFile('./test/known_disparities.csv', line)
+            console.log("New disparity found! Example added to known_disparities.csv")
         }
         if (breakOnDisparity) {
-            console.log("Disparity found! Stopping execution.")
+            console.log("New disparity found! Stopping execution.")
             break;
+        }
+    } else {
+        if (knownIssuePuzzles.includes(puzzle)) {
+            console.log("Previously known disparity now matches for puzzle:", puzzle)
         }
     }
     process.stdout.write(`Solved ${i + 1}/${puzzles.length} puzzles with new library...\r`);
 }
 
-let scoreDisparities = 0;
-let difficultyDisparities = 0;
+const disparityResults = {}
 
-for (const disparity of disparities) {
-    console.log("\nDisparity Found:")
-    console.log("Puzzle:", disparity.puzzle)
-    console.log("Original Estimation: " + disparity.original.difficulty.toUpperCase() + " (" + disparity.original.score + ")")
-    console.log("New Estimation: " + disparity.new.difficulty.toUpperCase() + " (" + disparity.new.score + ")")
-    if (disparity.original.difficulty.toUpperCase() !== disparity.new.difficulty.toUpperCase()) {
-        difficultyDisparities++;
+const totalPuzzlesByDifficulty = {}
+for (const difficulty of difficultyLevels) {
+    totalPuzzlesByDifficulty[difficulty] = puzzles.filter(puzzle => {
+        const originalResult = originalSolvedPuzzles.find(result => result.puzzle === puzzle)
+        return originalResult.difficulty.toUpperCase() === difficulty
+    }).length
+}
+
+let totalDifficultyDisparities = 0;
+let totalScoreDisparities = 0;
+let totalDisparities = 0;
+
+for (const difficulty of difficultyLevels) {
+    let difficultyDisparities = 0;
+    let scoreDisparities = 0;
+    for (const disparity of disparityMap[difficulty]) {
+        console.log("\nDisparity Found:")
+        console.log("Puzzle:", disparity.puzzle)
+        console.log("Original Estimation: " + disparity.original.difficulty.toUpperCase() + " (" + disparity.original.score + ")")
+        console.log("New Estimation: " + disparity.new.difficulty.toUpperCase() + " (" + disparity.new.score + ")")
+        if (disparity.original.difficulty.toUpperCase() !== disparity.new.difficulty.toUpperCase()) {
+            difficultyDisparities++;
+            totalDifficultyDisparities++;
+        }
+        if (disparity.original.score !== disparity.new.score) {
+            scoreDisparities++;
+            totalScoreDisparities++;
+        }
     }
-    if (disparity.original.score !== disparity.new.score) {
-        scoreDisparities++;
+    totalDisparities += disparityMap[difficulty].length;
+    disparityResults[difficulty] = {
+        total: disparityMap[difficulty].length,
+        difficultyDisparities,
+        scoreDisparities
     }
 }
 
-console.log("\nNumber of sudokus analyzed: " + puzzles.length)
-console.log("Total Disparities Found: " + disparities.length);
-console.log("Difficulty Disparities: " + difficultyDisparities);
-console.log("Score Disparities: " + scoreDisparities);
-console.log("Global percentage parity: " + (((puzzles.length - disparities.length) / puzzles.length) * 100).toFixed(2) + "%")
-console.log("Difficulty parity: " + (((puzzles.length - difficultyDisparities) / puzzles.length) * 100).toFixed(2) + "%")
-console.log("Score parity: " + (((puzzles.length - scoreDisparities) / puzzles.length) * 100).toFixed(2) + "%")
+if (!hideReport) {
+    console.log("\nNumber of sudokus analyzed: " + puzzles.length)
+    console.log("Total Disparities Found: " + totalDisparities);
+    console.log("Difficulty Disparities: " + totalDifficultyDisparities);
+    console.log("Score Disparities: " + totalScoreDisparities);
+    console.log("Difficulty parity: " + (((puzzles.length - totalDifficultyDisparities) / puzzles.length) * 100).toFixed(2) + "%")
+    console.log("Score parity: " + (((puzzles.length - totalScoreDisparities) / puzzles.length) * 100).toFixed(2) + "%")
+
+    console.log("\nDetailed Disparity Results by Difficulty Level:")
+    for (const difficulty of difficultyLevels) {
+        const results = disparityResults[difficulty]
+        console.log("  " + difficulty)
+        console.log("   Total Puzzles:", totalPuzzlesByDifficulty[difficulty])
+        console.log("   Disparities:", results.total)
+        console.log("   Difficulty Disparities:", results.difficultyDisparities)
+        console.log("   Score Disparities:", results.scoreDisparities)
+        console.log("   Difficulty Parity:", (((totalPuzzlesByDifficulty[difficulty] - results.difficultyDisparities) / totalPuzzlesByDifficulty[difficulty]) * 100).toFixed(2) + "%")
+        console.log("   Score Parity:", (((totalPuzzlesByDifficulty[difficulty] - results.scoreDisparities) / totalPuzzlesByDifficulty[difficulty]) * 100).toFixed(2) + "%")
+    }
+}

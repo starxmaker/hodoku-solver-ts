@@ -7,7 +7,7 @@ function generate(quantity, difficulty) {
         throw new Error("Invalid quantity. Please provide a positive integer.");
     }
 
-    if (!difficulty || !difficultyOptions.includes(difficulty.toUpperCase())) {
+    if (difficulty && !difficultyOptions.includes(difficulty.toUpperCase())) {
         throw new Error(`Invalid difficulty level. Valid options are: ${difficultyOptions.join(", ")}`);
     }
     return new Promise((resolve, reject) => {
@@ -18,16 +18,21 @@ function generate(quantity, difficulty) {
             return;
         }
 
-        const proc = spawn("java", [
+        let args = [
             "-Xmx8192m",
             "-jar",
             jarPath,
             "--one-line",
-            "--difficulty",
-            difficulty.toUpperCase(),
-            "--generate",
+            "--generate",   
             quantity
-        ]);
+        ]
+
+        if (difficulty) {
+            args.push("--difficulty")
+            args.push(difficulty.toUpperCase())
+        }
+
+        const proc = spawn("java", args);
 
         let buffer = "";
 

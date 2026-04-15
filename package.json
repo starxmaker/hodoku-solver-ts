@@ -21,10 +21,8 @@
     "build": "tsup",
     "test": "jest",
     "prepublishOnly": "npm run build",
-    "parity-tool:simple": "node scripts/parity-tool.js --difficulty=SIMPLE",
-    "parity-tool:easy": "node scripts/parity-tool.js --difficulty=EASY",
-    "parity-tool:intermediate": "node scripts/parity-tool.js --difficulty=INTERMEDIATE",
-    "parity-tool:expert": "node scripts/parity-tool.js --difficulty=EXPERT"
+    "parity-tool": "node scripts/parity-tool.js",
+    "parity-tool:known-cases": "node scripts/parity-tool.js --profile=knownCasesOnly"
   },
   "jest": {
     "preset": "ts-jest",
