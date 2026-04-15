@@ -108,13 +108,26 @@ for (let i = 0; i < puzzles.length; i++) {
     process.stdout.write(`Solved ${i + 1}/${puzzles.length} puzzles with new library...\r`);
 }
 
+let scoreDisparities = 0;
+let difficultyDisparities = 0;
+
 for (const disparity of disparities) {
     console.log("\nDisparity Found:")
     console.log("Puzzle:", disparity.puzzle)
     console.log("Original Estimation: " + disparity.original.difficulty.toUpperCase() + " (" + disparity.original.score + ")")
     console.log("New Estimation: " + disparity.new.difficulty.toUpperCase() + " (" + disparity.new.score + ")")
+    if (disparity.original.difficulty.toUpperCase() !== disparity.new.difficulty.toUpperCase()) {
+        difficultyDisparities++;
+    }
+    if (disparity.original.score !== disparity.new.score) {
+        scoreDisparities++;
+    }
 }
 
 console.log("\nNumber of sudokus analyzed: " + puzzles.length)
 console.log("Total Disparities Found: " + disparities.length);
-console.log("Percentage Parity: " + (((puzzles.length - disparities.length) / puzzles.length) * 100).toFixed(2) + "%")
+console.log("Difficulty Disparities: " + difficultyDisparities);
+console.log("Score Disparities: " + scoreDisparities);
+console.log("Global percentage parity: " + (((puzzles.length - disparities.length) / puzzles.length) * 100).toFixed(2) + "%")
+console.log("Difficulty parity: " + (((puzzles.length - difficultyDisparities) / puzzles.length) * 100).toFixed(2) + "%")
+console.log("Score parity: " + (((puzzles.length - scoreDisparities) / puzzles.length) * 100).toFixed(2) + "%")
