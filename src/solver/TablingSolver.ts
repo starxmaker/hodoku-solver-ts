@@ -157,6 +157,10 @@ class TableEntry {
     this._populated = true;
     return true;
   }
+
+  touch(): void {
+    this._populated = true;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -874,7 +878,6 @@ export class TablingSolver extends AbstractSolver {
         while (qi < queue.length) {
           const { cell: c, d, isOn } = queue[qi++];
           if (c === premiseCi && d === premiseD) continue;
-
           const srcTi = c * 10 + d;
           const srcSnap = isOn ? onSnap[srcTi] : offSnap[srcTi];
 
@@ -907,7 +910,7 @@ export class TablingSolver extends AbstractSolver {
     const groups = collectGroupNodes(this.sudoku);
     this._fillTables();
     this._expandTables(this._onTable, this._offTable, groups.length > 0 ? groups : undefined);
-    return this._checkForcingChains(true);
+    return this._checkForcingChains();
   }
 
   private _getForcingNet(): SolutionStep | null {
@@ -915,7 +918,7 @@ export class TablingSolver extends AbstractSolver {
     const groups = collectGroupNodes(this.sudoku);
     this._fillTablesForNet();
     this._expandTables(this._onTable, this._offTable, groups.length > 0 ? groups : undefined);
-    const step = this._checkForcingChains(false);
+    const step = this._checkForcingChains();
     if (!step) return null;
     if (step.type === SolutionType.FORCING_CHAIN_CONTRADICTION)
       return { ...step, type: SolutionType.FORCING_NET_CONTRADICTION };
@@ -1010,6 +1013,9 @@ export class TablingSolver extends AbstractSolver {
 
         // ── OFF premise: d is DELETED from ci ─────────────────────────────
         const off = this._offTable[ti];
+        // Keep the table active (Java has an index-0 premise entry) without
+        // adding a synthetic OFF conclusion into offSets.
+        off.touch();
         // Naked single: only 1 other candidate → that must be set
         const others = cellCands.filter(x => x !== d);
         if (others.length === 1) {
@@ -1295,7 +1301,6 @@ export class TablingSolver extends AbstractSolver {
         while (qi < queue.length) {
           const { cell: c, d, isOn, dist, pathVisitsPremise: pvp } = queue[qi++];
           if (c === premiseCi && d === premiseD) continue;
-
           const childPvp = (pvp || c === premiseCi) ? 1 : 0;
           // Encode parent pointer: cell*20+digit*2+(isOn?1:0)
           const parentEnc = c * 20 + d * 2 + (isOn ? 1 : 0);
@@ -1407,7 +1412,9 @@ export class TablingSolver extends AbstractSolver {
    *   - The premise cell (firstCellIndex) is NEVER added to the set
    *   - This allows consecutive same-cell entries (within-cell links)
    */
-  private _chainIsValid(entry: TableEntry, ci: number, endD: number, endIsOn: boolean): boolean {
+  private _chainIsValid(
+    entry: TableEntry, ci: number, endD: number, endIsOn: boolean, backwardOnly = false,
+  ): boolean {
     const key = ci * 10 + endD;
     const gf = endIsOn ? entry.groupFiredOn[key] : entry.groupFiredOff[key];
     if (gf) {
@@ -1416,7 +1423,7 @@ export class TablingSolver extends AbstractSolver {
       if (parents && parents.length > 0) {
         // Has NORMAL parents — accept if at least one is lasso-free
         for (const p of parents) {
-          if (this._buildAndCheckLasso(entry, ci, endD, endIsOn, p)) return true;
+          if (this._buildAndCheckLasso(entry, ci, endD, endIsOn, p, backwardOnly)) return true;
         }
         // Java only checks NORMAL_NODE entries in checkNiceLoops.
         // If all NORMAL parents fail the lasso check, reject — do NOT
@@ -1427,7 +1434,7 @@ export class TablingSolver extends AbstractSolver {
     }
     const parent = endIsOn ? entry.retOn[key] : entry.retOff[key];
     if (parent === -1) return false;
-    return this._buildAndCheckLasso(entry, ci, endD, endIsOn, parent);
+    return this._buildAndCheckLasso(entry, ci, endD, endIsOn, parent, backwardOnly);
   }
 
   /**
@@ -1941,9 +1948,9 @@ export class TablingSolver extends AbstractSolver {
 
     for (let ti = 0; ti < TABLE_SIZE; ti++) {
       const entry = tables[ti];
-      if (!entry.populated) continue;
       const ci = (ti / 10) | 0;
       const d  = ti % 10;
+      if (!entry.populated) continue;
       if (d === 0 || s.values[ci] !== 0 || !s.isCandidate(ci, d)) continue;
 
       if (isOnTables) {
@@ -1984,12 +1991,14 @@ export class TablingSolver extends AbstractSolver {
           const key = ci * 10 + d2;
           const dist = gdnlDist(entry, key, false);
           if (dist > 2 && s.getCandidates(ci).length === 2) {
-            if (grouped ? this._chainUsesGroupNode(entry, ci, d2, false) : this._chainIsValid(entry, ci, d2, false)) {
+            if (this._chainIsValid(entry, ci, d2, false, grouped)) {
               const chain = this._reconstructChain(entry, ci, d2, false, ci, d);
               if (chain) {
-                const dels = this._cnlEliminations(chain, ci, d, d2, false, false);
-                if (dels.length > 0) {
-                  out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                if (!grouped || chain.some(n => n.cell === -1 || !!n.groupCells)) {
+                  const dels = this._cnlEliminations(chain, ci, d, d2, false, false);
+                  if (dels.length > 0) {
+                    out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                  }
                 }
               }
             }
@@ -2002,12 +2011,14 @@ export class TablingSolver extends AbstractSolver {
           const key = ci * 10 + d;
           const dist = entry.onSets[d].has(ci) ? gdnlDist(entry, key, true) : 0;
           if (dist > 2) {
-            if (grouped ? this._chainUsesGroupNode(entry, ci, d, true) : this._chainIsValid(entry, ci, d, true)) {
+            if (this._chainIsValid(entry, ci, d, true, grouped)) {
               const chain = this._reconstructChain(entry, ci, d, true, ci, d);
               if (chain) {
-                const dels = this._cnlEliminations(chain, ci, d, d, false, true);
-                if (dels.length > 0) {
-                  out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                if (!grouped || chain.some(n => n.cell === -1 || !!n.groupCells)) {
+                  const dels = this._cnlEliminations(chain, ci, d, d, false, true);
+                  if (dels.length > 0) {
+                    out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                  }
                 }
               }
             }
@@ -2059,12 +2070,14 @@ export class TablingSolver extends AbstractSolver {
           const key = ci * 10 + d;
           const dist = entry.offSets[d].has(ci) ? gdnlDist(entry, key, false) : 0;
           if (dist > 2) {
-            if (grouped ? this._chainUsesGroupNode(entry, ci, d, false) : this._chainIsValid(entry, ci, d, false)) {
+            if (this._chainIsValid(entry, ci, d, false, grouped)) {
               const chain = this._reconstructChain(entry, ci, d, false, ci, d);
               if (chain) {
-                const dels = this._cnlEliminations(chain, ci, d, d, true, false);
-                if (dels.length > 0) {
-                  out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                if (!grouped || chain.some(n => n.cell === -1 || !!n.groupCells)) {
+                  const dels = this._cnlEliminations(chain, ci, d, d, true, false);
+                  if (dels.length > 0) {
+                    out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                  }
                 }
               }
             }
@@ -2078,12 +2091,15 @@ export class TablingSolver extends AbstractSolver {
           const key = ci * 10 + d2;
           const dist = gdnlDist(entry, key, true);
           if (dist > 2) {
-            if (grouped ? this._chainUsesGroupNode(entry, ci, d2, true) : this._chainIsValid(entry, ci, d2, true)) {
+            const isValid = this._chainIsValid(entry, ci, d2, true, grouped);
+            if (isValid) {
               const chain = this._reconstructChain(entry, ci, d2, true, ci, d);
               if (chain) {
-                const dels = this._cnlEliminations(chain, ci, d, d2, true, true);
-                if (dels.length > 0) {
-                  out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                if (!grouped || chain.some(n => n.cell === -1 || !!n.groupCells)) {
+                  const dels = this._cnlEliminations(chain, ci, d, d2, true, true);
+                  if (dels.length > 0) {
+                    out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                  }
                 }
               }
             }
@@ -2154,7 +2170,7 @@ export class TablingSolver extends AbstractSolver {
 
   // ── checkForcingChains() ─────────────────────────────────────────────────
 
-  private _checkForcingChains(includeAllChainsVerity: boolean): SolutionStep | null {
+  private _checkForcingChains(): SolutionStep | null {
     const out: SolutionStep[] = [];
     // 1. Single-chain contradictions
     for (let ti = 0; ti < TABLE_SIZE; ti++) {
@@ -2171,12 +2187,10 @@ export class TablingSolver extends AbstractSolver {
     for (let ti = 0; ti < TABLE_SIZE; ti++) {
       this._collectTwoChains(this._onTable[ti], this._offTable[ti], out);
     }
-    if (includeAllChainsVerity) {
-      // 3. All-candidates-in-cell verity
-      this._collectAllChainsForCells(out);
-      // 4. All-positions-in-house verity
-      this._collectAllChainsForHouses(out);
-    }
+    // 3. All-candidates-in-cell verity
+    this._collectAllChainsForCells(out);
+    // 4. All-positions-in-house verity
+    this._collectAllChainsForHouses(out);
     if (out.length === 0) return null;
     out.sort(_compareForcingChainSteps);
     return out[0];
@@ -2293,8 +2307,7 @@ export class TablingSolver extends AbstractSolver {
       if (s.values[ci] !== 0) continue;
       const cands = s.getCandidates(ci);
       if (cands.length < 2) continue;
-      const entries = cands.map(d => this._onTable[ci * 10 + d]).filter(e => e.populated);
-      if (entries.length < 2) continue;
+      const entries = cands.map(d => this._onTable[ci * 10 + d]);
       const sourceKeys = new Set<number>(cands.map(d => ci * 10 + d));
       _collectVerities(_intersect(entries), entries, s, out, sourceKeys);
     }
@@ -2310,8 +2323,7 @@ export class TablingSolver extends AbstractSolver {
           c => s.values[c] === 0 && s.isCandidate(c, d),
         );
         if (positions.length < 2) continue;
-        const entries = positions.map(c => this._onTable[c * 10 + d]).filter(e => e.populated);
-        if (entries.length < 2) continue;
+        const entries = positions.map(c => this._onTable[c * 10 + d]);
         const sourceKeys = new Set<number>(positions.map(c => c * 10 + d));
         _collectVerities(_intersect(entries), entries, s, out, sourceKeys);
       }
