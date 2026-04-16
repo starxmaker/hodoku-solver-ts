@@ -8,4 +8,11 @@ export default defineConfig({
   sourcemap: true,
   splitting: false,
   treeshake: true,
+  platform: "neutral",
+  env: {
+    HODOKU_TRACE: "",
+    HODOKU_DEBUG_STEPS: "",
+    HODOKU_DEBUG_ALS: "",
+    DBG_CNL: "",
+  },
 });
