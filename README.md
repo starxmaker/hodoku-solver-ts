@@ -15,15 +15,15 @@ These numbers are generated using parity tool, which uses Java QQwing (generatio
 
 You can run it using `npm run parity-tool`
 
-Note: by default this tool will keep record of known issues and then will add them on next runs. Consequently, if the issues are not fixed, expect the parity values below to decrease on each run.
+Note: the tool excludes known disparities. So also check that file.
 
 | Difficulty            | Difficulty parity     | Score parity       |
 |-----------------------|-----------------------|--------------------|
 | Easy                  | 100%                  | 100%               |
-| Medium                | 100%                  | 99.88%             |
-| Hard                  | 99.90%                | 99.41%             |
-| Unfair                | 99.39%                | 98.78%             |
-| Extreme               | 99.49%                | 89.72%             |
+| Medium                | 100%                  | 100%               |
+| Hard                  | 100%                  | 100%               |
+| Unfair                | 100%                  | 99.7%              |
+| Extreme               | 99.74%                | 97.91%             |
 
 ## Scope
 

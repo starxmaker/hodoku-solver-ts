@@ -21,7 +21,7 @@
     "build": "tsup",
     "test": "jest",
     "prepublishOnly": "npm run build",
-    "parity-tool": "node scripts/parity-tool.js",
+    "parity-tool": "node scripts/parity-tool.js --includeKnownCases=false",
     "parity-tool:known-cases": "node scripts/parity-tool.js --profile=knownCasesOnly"
   },
   "jest": {
