@@ -1,5 +1,5 @@
 {
-  "name": "hodoku-solver-ts",
+  "name": "hodoku-difficulty-rating-ts",
   "version": "0.1.0",
   "description": "TypeScript port of HoDoKu's logical Sudoku solver.",
   "author": "starxmaker",

@@ -1,4 +1,4 @@
-# hodoku-solver-ts
+# hodoku-difficulty-rating-ts
 
 TypeScript port of [HoDoKu](https://sourceforge.net/projects/hodoku/)'s logical Sudoku solver, scoped to **difficulty rating only**.
 
@@ -43,7 +43,7 @@ Note: the tool excludes known disparities. So also check that file.
 ## Usage
 
 ```ts
-import { SudokuSolver } from "hodoku-solver-ts";
+import { SudokuSolver } from "hodoku-difficulty-rating-ts";
 
 const { solved, difficulty, score } = await SudokuSolver.rate(
   "...253..87..1.......1....4...8.94...5.......71.95.8....1......2...785...3.4.2....",
