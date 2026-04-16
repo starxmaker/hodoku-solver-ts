@@ -1616,9 +1616,14 @@ export class TablingSolver extends AbstractSolver {
       const nd = endIsOn ? entry.normalDistOn[key0] : entry.normalDistOff[key0];
       const md = endIsOn ? entry.minDistOn[key0] : entry.minDistOff[key0];
       const canSkipLasso = nd === 0 && !endIsOn && endD === 1 && md === 10;
-      const lassoOk = canSkipLasso
+      let lassoOk = canSkipLasso
         ? true
         : this._buildAndCheckLasso(entry, ci, endD, endIsOn, lassoParent);
+      // Some grouped OFF-premise loops are only lasso-free in the
+      // premise→conclusion direction because parent preference differs.
+      if (!lassoOk && !gf0 && !entry.isOn && !endIsOn) {
+        lassoOk = this._buildAndCheckLasso(entry, ci, endD, endIsOn, lassoParent, true);
+      }
       if (!lassoOk) return false;
     }
 
@@ -1932,7 +1937,6 @@ export class TablingSolver extends AbstractSolver {
   private _collectNiceLoops(tables: TableEntry[], grouped: boolean, out: _StepCandidate[]): void {
     const s = this.sudoku;
     const isOnTables = tables === this._onTable;
-
     // Helper: check GROUP filter + compute dist for a conclusion entry.
     // Returns the dist to use, or 0 if the entry should be skipped.
     const gdnlDist = (entry: TableEntry, key: number, isOn: boolean): number => {
@@ -1952,7 +1956,6 @@ export class TablingSolver extends AbstractSolver {
       const d  = ti % 10;
       if (!entry.populated) continue;
       if (d === 0 || s.values[ci] !== 0 || !s.isCandidate(ci, d)) continue;
-
       if (isOnTables) {
         // ON premise: firstLinkStrong = false (ON table initial entries are always WEAK/OFF)
 
@@ -1997,7 +2000,7 @@ export class TablingSolver extends AbstractSolver {
                 if (!grouped || chain.some(n => n.cell === -1 || !!n.groupCells)) {
                   const dels = this._cnlEliminations(chain, ci, d, d2, false, false);
                   if (dels.length > 0) {
-                    out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                    out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist: grouped ? chain.length + 1 : dist });
                   }
                 }
               }
@@ -2017,7 +2020,7 @@ export class TablingSolver extends AbstractSolver {
                 if (!grouped || chain.some(n => n.cell === -1 || !!n.groupCells)) {
                   const dels = this._cnlEliminations(chain, ci, d, d, false, true);
                   if (dels.length > 0) {
-                    out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                    out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist: grouped ? chain.length + 1 : dist });
                   }
                 }
               }
@@ -2076,7 +2079,7 @@ export class TablingSolver extends AbstractSolver {
                 if (!grouped || chain.some(n => n.cell === -1 || !!n.groupCells)) {
                   const dels = this._cnlEliminations(chain, ci, d, d, true, false);
                   if (dels.length > 0) {
-                    out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                    out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist: grouped ? chain.length + 1 : dist });
                   }
                 }
               }
@@ -2098,7 +2101,7 @@ export class TablingSolver extends AbstractSolver {
                 if (!grouped || chain.some(n => n.cell === -1 || !!n.groupCells)) {
                   const dels = this._cnlEliminations(chain, ci, d, d2, true, true);
                   if (dels.length > 0) {
-                    out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist });
+                    out.push({ step: _step(SolutionType.CONTINUOUS_NICE_LOOP, dels), dist: grouped ? chain.length + 1 : dist });
                   }
                 }
               }
@@ -2308,8 +2311,7 @@ export class TablingSolver extends AbstractSolver {
       const cands = s.getCandidates(ci);
       if (cands.length < 2) continue;
       const entries = cands.map(d => this._onTable[ci * 10 + d]);
-      const sourceKeys = new Set<number>(cands.map(d => ci * 10 + d));
-      _collectVerities(_intersect(entries), entries, s, out, sourceKeys);
+      _collectVerities(_intersect(entries), entries, s, out);
     }
   }
 
@@ -2324,8 +2326,7 @@ export class TablingSolver extends AbstractSolver {
         );
         if (positions.length < 2) continue;
         const entries = positions.map(c => this._onTable[c * 10 + d]);
-        const sourceKeys = new Set<number>(positions.map(c => c * 10 + d));
-        _collectVerities(_intersect(entries), entries, s, out, sourceKeys);
+        _collectVerities(_intersect(entries), entries, s, out);
       }
     }
   }
@@ -2365,11 +2366,9 @@ function _collectVerities(
   entries: TableEntry[],
   s: Sudoku2,
   out: SolutionStep[],
-  sourceKeys: Set<number>,
 ): void {
   for (let d = 1; d <= 9; d++) {
     for (const cell of onSets[d]) {
-      if (sourceKeys.has(cell * 10 + d)) continue;
       if (s.isCandidate(cell, d)) {
         const key = cell * 10 + d;
         let len = 0;
@@ -2381,7 +2380,6 @@ function _collectVerities(
       }
     }
     for (const cell of offSets[d]) {
-      if (sourceKeys.has(cell * 10 + d)) continue;
       if (s.isCandidate(cell, d)) {
         const key = cell * 10 + d;
         let len = 0;
