@@ -6,6 +6,16 @@ Given an 81-character puzzle string it returns the difficulty score and band tha
 
 Please consider that it is far slower than the original Java version. Use this version only if you need JS support.
 
+## Difficulty bands
+
+| Difficulty | Score range |
+|---|---:|
+| `EASY` | `0-800` |
+| `MEDIUM` | `801-1000` |
+| `HARD` | `1001-1600` |
+| `UNFAIR` | `1601-1800` |
+| `EXTREME` | `1801+` |
+
 
 ## Current parity
 
@@ -29,7 +39,7 @@ Note: the tool excludes known disparities. So also check that file.
 
 **Included:**
 - Full logical solver engine (naked singles → forcing chains) — all techniques contribute to scoring
-- `SudokuSolver.rate()` — the single public entry point
+- `SudokuSolver.rate()` and `SudokuSolver.rateByScore()` — public rating entry points
 - Difficulty bands: `EASY`, `MEDIUM`, `HARD`, `UNFAIR`, `EXTREME`
 - Scores that match the Java reference implementation
 
@@ -45,7 +55,7 @@ Note: the tool excludes known disparities. So also check that file.
 ```ts
 import { SudokuSolver } from "hodoku-difficulty-rating-ts";
 
-const { solved, difficulty, score } = await SudokuSolver.rate(
+const { solved, difficulty, score } = SudokuSolver.rate(
   "...253..87..1.......1....4...8.94...5.......71.95.8....1......2...785...3.4.2....",
 );
 
@@ -56,12 +66,23 @@ console.log(score);       // 224
 
 ### Optional difficulty cap
 
-Stop early if the puzzle exceeds a given band:
+Stop early if the puzzle exceeds a given difficulty band:
 
 ```ts
-const r = await SudokuSolver.rate(puzzle, "HARD");
+const r = SudokuSolver.rate(puzzle, "HARD");
 if (!r.solved) {
   console.log("Puzzle exceeds HARD");
+}
+```
+
+### Optional score cap
+
+Stop early if the puzzle exceeds a given score:
+
+```ts
+const r = SudokuSolver.rateByScore(puzzle, 1600);
+if (!r.solved) {
+  console.log("Puzzle exceeds score 1600");
 }
 ```
 
@@ -72,9 +93,16 @@ if (!r.solved) {
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `puzzle` | `string` | — | 81-character string; `'0'` or `'.'` for empty cells. |
-| `maxDifficulty` | `DifficultyType` | `"EXTREME"` | Stop and return `solved: false` when score exceeds this band. |
+| `maxDifficulty` | `DifficultyType` | `"EXTREME"` | Stop and return `solved: false` when score exceeds this band's ceiling. |
 
-Returns `Promise<SolveRating>`:
+### `SudokuSolver.rateByScore(puzzle, maxScore?)`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `puzzle` | `string` | — | 81-character string; `'0'` or `'.'` for empty cells. |
+| `maxScore` | `number` | `Number.MAX_SAFE_INTEGER` | Stop and return `solved: false` when cumulative score exceeds this threshold. |
+
+Returns `SolveRating`:
 
 ```ts
 interface SolveRating {
@@ -84,7 +112,7 @@ interface SolveRating {
 }
 ```
 
-Score thresholds (matching Java): EASY ≤ 800, MEDIUM ≤ 1000, HARD ≤ 1600, UNFAIR ≤ 1800, EXTREME = anything above.
+Score thresholds (matching Java): EASY = 0-800, MEDIUM = 801-1000, HARD = 1001-1600, UNFAIR = 1601-1800, EXTREME = 1801+.
 
 ## Building from source
 

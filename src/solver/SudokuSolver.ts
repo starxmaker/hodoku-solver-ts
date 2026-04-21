@@ -423,11 +423,19 @@ export class SudokuSolver extends AbstractSolver {
    *
    * @param maxDifficulty  When provided the solve stops as soon as the
    *                       accumulated score exceeds that band's ceiling,
-   *                       returning {@code solved: false}.  Omit (or pass
+   *                       returning {@code solved: false}. Omit (or pass
    *                       {@code "EXTREME"}) to always solve to completion.
    */
   solveWithRating(maxDifficulty: DifficultyType = "EXTREME"): SolveRating {
-    const maxThreshold = DIFFICULTY_LEVELS.find(d => d.name === maxDifficulty)!.maxScore;
+    const maxScore = DIFFICULTY_LEVELS.find(d => d.name === maxDifficulty)!.maxScore;
+    return this.solveWithScore(maxScore);
+  }
+
+  /**
+   * Solve the puzzle and compute a HoDoKu difficulty rating, stopping early
+   * when the cumulative score exceeds a numeric threshold.
+   */
+  solveWithScore(maxScore: number = Number.MAX_SAFE_INTEGER): SolveRating {
     let score = 0;
     // Minimum difficulty level forced by any technique used (Java per-technique level).
     let minLevelIdx = 0;
@@ -458,7 +466,7 @@ export class SudokuSolver extends AbstractSolver {
           // Mirror Java: when GIVE_UP fires, terminate the loop immediately
           // (Java sets step=null causing while(step!=null) to exit).
           if (step.type === SolutionType.GIVE_UP) break outer;
-          if (score > maxThreshold) break outer;
+          if (score > maxScore) break outer;
           continue outer;
         }
       }
@@ -497,6 +505,25 @@ export class SudokuSolver extends AbstractSolver {
     const solver = new SudokuSolver();
     solver.setSudoku(sudoku);
     return solver.solveWithRating(maxDifficulty);
+  }
+
+  /**
+   * Convenience: load an 81-character puzzle string, solve it, and stop early
+   * once the cumulative score exceeds a numeric threshold.
+   *
+   * ```ts
+   * const { solved, score, difficulty } = SudokuSolver.rateByScore("530070000...", 1600);
+   * ```
+   *
+   * @param puzzle    81-character string; '0' or '.' for empty cells.
+   * @param maxScore  Optional score cap — same as {@link solveWithScore}.
+   */
+  static rateByScore(puzzle: string, maxScore: number = Number.MAX_SAFE_INTEGER): SolveRating {
+    const sudoku = new Sudoku2();
+    sudoku.setSudoku(puzzle);
+    const solver = new SudokuSolver();
+    solver.setSudoku(sudoku);
+    return solver.solveWithScore(maxScore);
   }
 
   private _solverFor(type: typeof SolutionType[keyof typeof SolutionType]): AbstractSolver | null {

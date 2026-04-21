@@ -109,7 +109,8 @@ export interface SolveRating {
   solved: boolean;
   /**
    * Cumulative HoDoKu score (sum of base scores for every applied step).
-   * Thresholds: EASY ≤ 800, MEDIUM ≤ 1000, HARD ≤ 1600, UNFAIR ≤ 1800, EXTREME = ∞.
+   * Difficulty ranges: EASY = 0-800, MEDIUM = 801-1000, HARD = 1001-1600,
+   * UNFAIR = 1601-1800, EXTREME = 1801+.
    */
   score: number;
   /** Difficulty band determined from the accumulated score. */

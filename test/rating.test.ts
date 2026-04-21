@@ -34,4 +34,26 @@ describe("SudokuSolver.rate() -- CSV regression", () => {
     },
     30_000,
   );
+
+  test("keeps the existing difficulty-capped API", () => {
+    const caseAboveEasy = cases.find(testCase => testCase.score > 800);
+
+    expect(caseAboveEasy).toBeDefined();
+
+    const byDifficulty = SudokuSolver.rate(caseAboveEasy!.puzzle, "EASY");
+    const byScore = SudokuSolver.rateByScore(caseAboveEasy!.puzzle, 800);
+
+    expect(byDifficulty).toEqual(byScore);
+  });
+
+  test("can stop when score exceeds a numeric cap", () => {
+    const { puzzle, score } = cases[0];
+
+    const r = SudokuSolver.rateByScore(puzzle, 200);
+
+    expect(score).toBeGreaterThan(200);
+    expect(r.solved).toBe(false);
+    expect(r.score).toBeGreaterThan(200);
+    expect(r.score).toBeLessThanOrEqual(score);
+  });
 });
