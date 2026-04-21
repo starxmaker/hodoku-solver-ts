@@ -109,10 +109,11 @@ export interface SolveRating {
   solved: boolean;
   /**
    * Cumulative HoDoKu score (sum of base scores for every applied step).
-   * Difficulty ranges: EASY = 0-800, MEDIUM = 801-1000, HARD = 1001-1600,
-   * UNFAIR = 1601-1800, EXTREME = 1801+.
+   * Difficulty ceilings: EASY max 800, MEDIUM max 1000, HARD max 1600,
+   * UNFAIR max 1800, EXTREME has no score ceiling. Difficulty is also
+   * constrained by the minimum band of any technique used.
    */
   score: number;
-  /** Difficulty band determined from the accumulated score. */
+  /** Difficulty band determined from score and technique minimums. */
   difficulty: DifficultyType;
 }

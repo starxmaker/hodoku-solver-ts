@@ -8,13 +8,15 @@ Please consider that it is far slower than the original Java version. Use this v
 
 ## Difficulty bands
 
-| Difficulty | Score range |
+These values are maximum scores, not exclusive score ranges. A puzzle can still be rated above the score-only ceiling if it uses a technique whose minimum difficulty is higher. For example, a `MEDIUM` puzzle can have an `EASY` score.
+
+| Difficulty | Max score |
 |---|---:|
-| `EASY` | `0-800` |
-| `MEDIUM` | `801-1000` |
-| `HARD` | `1001-1600` |
-| `UNFAIR` | `1601-1800` |
-| `EXTREME` | `1801+` |
+| `EASY` | `800` |
+| `MEDIUM` | `1000` |
+| `HARD` | `1600` |
+| `UNFAIR` | `1800` |
+| `EXTREME` | none |
 
 
 ## Current parity
@@ -112,7 +114,7 @@ interface SolveRating {
 }
 ```
 
-Score thresholds (matching Java): EASY = 0-800, MEDIUM = 801-1000, HARD = 1001-1600, UNFAIR = 1601-1800, EXTREME = 1801+.
+Difficulty ceilings (matching Java): EASY max `800`, MEDIUM max `1000`, HARD max `1600`, UNFAIR max `1800`, EXTREME has no score ceiling. Difficulty is also bounded below by the hardest technique used, so the final difficulty is not determined by score alone.
 
 ## Building from source
 
